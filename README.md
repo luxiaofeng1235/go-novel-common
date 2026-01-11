@@ -1,1 +1,2 @@
-# go-novel-common
+# go-novel
+

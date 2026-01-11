@@ -1,0 +1,10 @@
+.vscode
+gofound
+/gofound
+/tmp/
+/index/
+/.idea/
+/*/*.bin
+/cache
+/tests/index
+/data

@@ -1,0 +1,51 @@
+server:
+  env: prod
+  debug: true
+  port: 8006
+  adminUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
+  downUrl : https://down.mnjkfup.cn #对外提供给市场和业务专员的域名
+
+api:
+  encrypt: false
+  port: 8005
+  apiUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
+
+biquge:
+ encrypt: false
+ port: 8008
+
+source:
+  port: 8007
+  apiUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
+
+#casbin配置
+casbin:
+  modelFile: ./public/casbin_conf/rbac_model.conf
+  policyFile: ./public/casbin_conf/rbac_policy.csv
+
+adminInfo:
+  notCheckAuthAdminIds: [1]  #无需验证后台权限的用户id
+  pageNum: 10  #后台列表分页长度
+  dataDir:  "./public/data"  #数据目录
+
+jwt:
+  secret: 6fdfff3591fbea8e84a936d8ec62157f
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+
+logs:
+  # 日志等级(-1:Debug, 0:Info, 1:Warn, 2:Error, 3:DPanic, 4:Panic, 5:Fatal, -1<=level<=5, 参照zap.level源码)
+  level: -1
+  # 日志路径
+  path: logs
+  # 文件最大大小, M
+  max-size: 50
+  # 备份数
+  max-backups: 100
+  # 存放时间, 天
+  max-age: 30
+  # 是否压缩
+  compress: false
