@@ -786,6 +786,9 @@ func GetGeoLite2CityByIp(ip string) (cityEnName, cityZhName, postal string) {
 	cityZhName = "unknown"
 	// If you are using strings that may be invalid, check that ip is not nil
 	netIp := net.ParseIP(ip)
+	if netIp == nil || global.GeoCityReader == nil {
+		return
+	}
 	record, err := global.GeoCityReader.City(netIp)
 	if err != nil {
 		log.Printf("GeoLite2 City Error:%s", err.Error())

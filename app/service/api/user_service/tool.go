@@ -31,7 +31,7 @@ func checkEmailCode(email, code string) (err error) {
 		}
 	} else {
 		//效验邮箱验证码
-		err = utils.IsEmailCode(code, code)
+		err = utils.IsEmailCode(email, code)
 		if err != nil {
 			err = fmt.Errorf("%v", "验证码不正确或已过期")
 			return err
@@ -54,7 +54,7 @@ func checkTelCode(tel, code string) (err error) {
 		}
 	} else {
 		//效验短信验证码
-		err = utils.IsYzm(code, code)
+		err = utils.IsYzm(tel, code)
 		if err != nil {
 			err = fmt.Errorf("%v", "验证码不正确或已过期")
 			return err
