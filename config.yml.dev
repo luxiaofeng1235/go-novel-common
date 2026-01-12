@@ -2,13 +2,13 @@ server:
   env: prod
   debug: true
   port: 8006
-  adminUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
-  downUrl : https://down.mnjkfup.cn #对外提供给市场和业务专员的域名
+  adminUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
+  downUrl : http://127.0.0.1 #对外提供给市场和业务专员的域名
 
 api:
   encrypt: false
   port: 8005
-  apiUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
+  apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
 
 biquge:
  encrypt: false
@@ -16,7 +16,7 @@ biquge:
 
 source:
   port: 8007
-  apiUrl: http://picc.mnjkfup.cn #用户获取后台上传的图片资源路径
+  apiUrl: hhttp://127.0.0.1 #用户获取后台上传的图片资源路径
 
 #casbin配置
 casbin:

@@ -4,9 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	jsoniter "github.com/json-iterator/go"
-	"github.com/panjf2000/ants/v2"
-	"github.com/thedevsaddam/gojsonq/v2"
 	"go-novel/app/lib/aJson"
 	"go-novel/app/lib/zssq"
 	"go-novel/app/models"
@@ -22,6 +19,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	jsoniter "github.com/json-iterator/go"
+	"github.com/panjf2000/ants/v2"
+	"github.com/thedevsaddam/gojsonq/v2"
 )
 
 func main() {

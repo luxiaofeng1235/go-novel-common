@@ -5,7 +5,6 @@ go 1.19
 require (
 	github.com/PuerkitoBio/goquery v1.9.1
 	github.com/alexeyco/goozzle v0.0.0-20190204125551-a9179c201c4b
-	github.com/aliyun/aliyun-oss-go-sdk v3.0.1+incompatible
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/ant-libs-go/ip_parser v0.1.2
 	github.com/aws/aws-sdk-go v1.51.5
@@ -35,7 +34,6 @@ require (
 	github.com/olahol/melody v1.1.4
 	github.com/oschwald/geoip2-golang v1.9.0
 	github.com/panjf2000/ants/v2 v2.9.1
-	github.com/qiniu/go-sdk/v7 v7.18.2
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/sjy3/go-keylock v0.0.0-20210305015907-e987e967d5a4
@@ -147,9 +145,7 @@ require (
 	golang.org/x/arch v0.7.0 // indirect
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
 	golang.org/x/image v0.0.0-20210216034530-4410531fe030 // indirect
-	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
-	golang.org/x/time v0.6.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
