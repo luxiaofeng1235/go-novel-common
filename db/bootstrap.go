@@ -10,12 +10,31 @@ package db
 import (
 	"flag"
 	"fmt"
-	"github.com/spf13/viper"
 	"go-novel/config"
 	"go-novel/routers/api_routes"
 	"go-novel/routers/source_routes"
 	"log"
+
+	"github.com/spf13/viper"
 )
+
+// 启动后端 -只包含MySQL和source
+func StartAdminServer() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	_ = config.GetString("server.env")
+	host, name, user, passwd := GetDB()
+	InitMysql(host, name, user, passwd)
+	sourceHost := viper.GetString("source.host")
+	sourcePort := viper.GetString("source.port")
+	if sourceHost == "" {
+		sourceHost = "0.0.0.0"
+	}
+	if sourcePort == "" {
+		sourcePort = "8007"
+	}
+	go source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort))
+}
 
 // StartApiServer 启动 API 服务（脚手架最小启动链路）
 func StartApiServer() {
