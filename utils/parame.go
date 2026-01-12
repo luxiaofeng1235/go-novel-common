@@ -1,45 +1,16 @@
 package utils
 
 import (
-	"github.com/olahol/melody"
 	"go-novel/app/models"
+
+	"github.com/olahol/melody"
 )
 
 const (
-	Nickname              = "nickname"
-	Email                 = "email"
-	Sex                   = "sex"
-	Pic                   = "pic"
-	Tel                   = "tel"
-	BookType              = "book_type"
-	Invite                = "invite"
-	Follow                = "follow"
-	Passwd                = "passwd"
-	Rec                   = "rec"
-	Hot                   = "hot"
-	Hits                  = "hits"
-	Search                = "search"
-	Serialize             = "serialize"
-	Score                 = "score"
-	New                   = "new"
-	Choice                = "choice"
-	Classic               = "classic"
-	Classicrec            = "classicrec"
-	Today                 = "today"
-	Yesterday             = "yesterday"
-	Agoday                = "agoday"
-	Notice                = "notice"
-	Praise                = "praise"
-	Comment               = "comment"
-	CollectInfo           = "collect_info"             //采集信息
-	CollectSourceUrl      = "collect_source_url"       //分页链接
-	CollectPageUrl        = "collect_page_url"         //分页链接
-	CollectPageBookUrl    = "collect_page_book_url"    //分页小说列表
-	CollectChapterUrl     = "collect_chapter_url"      //章节列表
+	New = "new"
+
 	CollectChapterUrlTemp = "collect_chapter_url_temp" //章节列表
-	CollectList           = "collect_list"
-	CollectChapter        = "collect_chapter"
-	CollectLog            = "collect_log"
+
 	ZssqCategory          = "zssq_category"     //分类列表
 	ZssqBooks             = "zssq_books"        //小说列表
 	Biquge34Chapters      = "biquge34_chapters" //分类列表
@@ -52,23 +23,11 @@ const (
 	Bqg24Books            = "bqg24_books"
 	Siluke520Category     = "siluke520_category" //分类列表
 	Siluke520Books        = "siluke520_books"
-	Chapter               = "chapter"
-	DefaultSource         = "默认书源"
 	RoundDot              = "・"
-	RoundDotBig           = "●"
-	UploadBookPicPath     = "uploadBookPicPath"
 	UploadBookChapterPath = "uploadBookChapterPath"
-	UploadBookTextPath    = "uploadBookTextPath"
 	Rank                  = "rank"
-	ComicList             = "comicList"
 	DefaultPic            = "/general/nocover.jpg" //默认封面路径
 	REPLACEFOLDER         = "/data/pic"
-	LOCALUPLOAD           = "/data/upload/"                     //本地路径替换
-	REPLACEAPK            = "/www/wwwroot/down.mnjkfup.cn"      //需要替换的下载显示域名
-	UPLOADAPK             = "/www/wwwroot/down.mnjkfup.cn/apk/" //上传的apk路径信息12
-	EncryptVer0           = 0                                   //笔趣阁加密默认值
-	EncryptVer1           = 1                                   //笔趣阁解密默认值
-	AdminHostIp           = "103.36.91.36"                      //web机器的IP地址
 )
 
 var (
