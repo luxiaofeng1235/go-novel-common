@@ -1,14 +1,28 @@
+/*
+ * @Descripttion: JWT 生成与校验
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:45:00
+ */
 package utils
 
 import (
 	"errors"
+	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/spf13/viper"
 	"time"
 )
 
-var jwtSecret = []byte(viper.GetString("jwt.secret"))
 var ExpireTime int64 = 24
+
+func getJwtSecret() []byte {
+	// 不能在 package init 时读取：config/viper 可能尚未初始化，导致 secret 为空，
+	// 从而出现“看似没多久就过期”（实际上是签名校验失败）的现象。
+	secret := viper.GetString("jwt.secret")
+	return []byte(secret)
+}
 
 // Claims ...
 type Claims struct {
@@ -34,7 +48,7 @@ func GenerateToken(username, password string, authority int) (string, int64, err
 	}
 
 	tokenClaims := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	token, err := tokenClaims.SignedString(jwtSecret)
+	token, err := tokenClaims.SignedString(getJwtSecret())
 
 	return token, expireTime.Unix(), err
 }
@@ -42,7 +56,11 @@ func GenerateToken(username, password string, authority int) (string, int64, err
 // ParseToken 验证用户token
 func ParseToken(token string) (*Claims, error) {
 	tokenClaims, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		// 防止 alg 混淆（只允许 HMAC 系列）
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return getJwtSecret(), nil
 	})
 
 	if tokenClaims != nil {
@@ -57,7 +75,10 @@ func ParseToken(token string) (*Claims, error) {
 // 刷新产生新的token
 func RefreshToken(tokenString string) (string, int64, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return getJwtSecret(), nil
 	})
 	if err != nil {
 		return "", 0, err
@@ -94,7 +115,7 @@ func GenerateEmailToken(userID, Operation uint, email, password string) (string,
 	}
 
 	tokenClaims := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	token, err := tokenClaims.SignedString(jwtSecret)
+	token, err := tokenClaims.SignedString(getJwtSecret())
 
 	return token, err
 }
@@ -102,7 +123,10 @@ func GenerateEmailToken(userID, Operation uint, email, password string) (string,
 // ParseEmailToken 验证邮箱验证token
 func ParseEmailToken(token string) (*EmailClaims, error) {
 	tokenClaims, err := jwt.ParseWithClaims(token, &EmailClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return getJwtSecret(), nil
 	})
 
 	if tokenClaims != nil {
