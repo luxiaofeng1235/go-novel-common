@@ -16,7 +16,7 @@ biquge:
 
 source:
   port: 8007
-  apiUrl: hhttp://127.0.0.1 #用户获取后台上传的图片资源路径
+  apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
 
 #casbin配置
 casbin:

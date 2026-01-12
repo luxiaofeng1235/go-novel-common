@@ -3,6 +3,8 @@ package utils
 import (
 	"fmt"
 	"github.com/gohouse/converter"
+	"go-novel/config"
+	"strings"
 )
 
 func AutoModel() {
@@ -20,6 +22,47 @@ func AutoModel() {
 		//SeperatFile: false,
 	})
 	// 开始迁移转换
+	mysqlAddress := strings.TrimSpace(config.GetString("mysql.address"))
+	if mysqlAddress == "" {
+		host := strings.TrimSpace(config.GetString("mysql.host"))
+		port := config.GetInt("mysql.port")
+		if port == 0 {
+			port = 3306
+		}
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		if strings.Contains(host, ":") {
+			mysqlAddress = host
+		} else {
+			mysqlAddress = fmt.Sprintf("%s:%d", host, port)
+		}
+	}
+
+	dbName := strings.TrimSpace(config.GetString("mysql.database"))
+	if dbName == "" {
+		dbName = strings.TrimSpace(config.GetString("mysql.dbname"))
+	}
+	if dbName == "" {
+		dbName = strings.TrimSpace(config.GetString("mysql.name"))
+	}
+	if dbName == "" {
+		dbName = DbName
+	}
+
+	mysqlUser := strings.TrimSpace(config.GetString("mysql.user"))
+	if mysqlUser == "" {
+		mysqlUser = "root"
+	}
+	mysqlPassword := config.GetString("mysql.password")
+
+	params := strings.TrimSpace(config.GetString("mysql.params"))
+	if params == "" {
+		params = "charset=utf8"
+	}
+	params = strings.TrimPrefix(params, "?")
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", mysqlUser, mysqlPassword, mysqlAddress, dbName, params)
+
 	err := t2t.
 		// 指定某个表,如果不指定,则默认全部表都迁移
 		Table("mc_book_feedback").
@@ -36,7 +79,7 @@ func AutoModel() {
 		// 生成的结构体保存路径
 		SavePath("./model.go").
 		// 数据库dsn,这里可以使用 t2t.DB() 代替,参数为 *sql.DB 对象
-		Dsn("root:root@tcp(127.0.0.1:3306)/novel?charset=utf8").
+		Dsn(dsn).
 		// 执行
 		Run()
 
