@@ -5,6 +5,11 @@ server:
   adminUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
   downUrl : http://127.0.0.1 #对外提供给市场和业务专员的域名
 
+admin:
+  host: 0.0.0.0
+  port: 8005
+  adminUrl: http://127.0.0.1 #后台静态资源域名（如后台上传图片）
+
 api:
   encrypt: false
   host: 0.0.0.0
