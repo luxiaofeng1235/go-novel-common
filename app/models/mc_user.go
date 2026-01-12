@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: 用户模型与请求结构体
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:30:00
+ */
 package models
 
 type McUser struct {
@@ -77,12 +84,21 @@ type SendCode struct {
 
 type LoginReq struct {
 	LoginType int    `form:"login_type" json:"login_type"`
+	Username  string `form:"username" json:"username"`
 	Tel       string `form:"tel" json:"tel"`
 	Email     string `form:"email" json:"email"`
 	Passwd    string `form:"passwd" json:"passwd"`
 	Code      string `form:"code" json:"code"`
 	Deviceid  string `form:"deviceid" json:"deviceid"`
 	Referrer  string `form:"referrer" json:"referrer"`
+}
+
+type RegisterReq struct {
+	Username string `form:"username" json:"username"`
+	Passwd   string `form:"passwd" json:"passwd"`
+	Nickname string `form:"nickname" json:"nickname"`
+	Referrer string `form:"referrer" json:"referrer"`
+	Deviceid string `form:"deviceid" json:"deviceid"`
 }
 
 type LogoffReq struct {

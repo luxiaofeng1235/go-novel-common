@@ -31,6 +31,10 @@ adminInfo:
 jwt:
   secret: 6fdfff3591fbea8e84a936d8ec62157f
 
+auth:
+  # 账号密码的 md5 盐（可留空）；设置后为 md5(md5(passwd)+salt)
+  passwordSalt: ""
+
 mysql:
   host: "127.0.0.1"
   port: 3306

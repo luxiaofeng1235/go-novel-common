@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: 用户相关路由
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:30:00
+ */
 package api_routes
 
 import (
@@ -11,6 +18,7 @@ func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 	user := r.Group("/user").Use(middleware.ApiReqDecrypt())
 	{
 		user.POST("/guest", userApi.Guest)
+		user.POST("/register", userApi.Register)
 		user.POST("/login", userApi.Login)
 		user.POST("/logoff", userApi.Logoff)
 		user.POST("/info", middleware.ApiJwt(), userApi.Info)
@@ -22,6 +30,7 @@ func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 
 		//get请求
 		user.GET("/guest", userApi.Guest)
+		user.GET("/register", userApi.Register)
 		user.GET("/login", userApi.Login)
 		user.GET("/logoff", userApi.Logoff)
 		user.GET("/info", middleware.ApiJwt(), userApi.Info)

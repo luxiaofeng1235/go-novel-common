@@ -10,10 +10,91 @@ import (
 	"go-novel/app/service/common/notify_service"
 	"go-novel/app/service/common/setting_service"
 	"go-novel/app/service/common/user_service"
+	"go-novel/config"
 	"go-novel/global"
 	"go-novel/utils"
 	"strings"
 )
+
+func hashLoginPasswd(plain string) string {
+	salt := strings.TrimSpace(config.GetString("auth.passwordSalt"))
+	if salt == "" {
+		return utils.Md5(plain)
+	}
+	return utils.GetMd5(plain, salt)
+}
+
+// 账号密码注册
+func Register(c *gin.Context, req *models.RegisterReq) (token string, expireTime int64, err error) {
+	username := strings.TrimSpace(req.Username)
+	passwd := strings.TrimSpace(req.Passwd)
+	nickname := strings.TrimSpace(req.Nickname)
+	referrer := strings.TrimSpace(req.Referrer)
+	deviceid := strings.TrimSpace(req.Deviceid)
+
+	if username == "" {
+		return "", 0, fmt.Errorf("%v", "账号不能为空")
+	}
+	if passwd == "" {
+		return "", 0, fmt.Errorf("%v", "密码不能为空")
+	}
+
+	// 用户名唯一性校验
+	var count int64
+	if err = global.DB.Model(models.McUser{}).Where("username = ?", username).Count(&count).Error; err != nil {
+		global.Sqllog.Errorf("%v", err.Error())
+		return "", 0, err
+	}
+	if count > 0 {
+		return "", 0, fmt.Errorf("%v", "账号已存在")
+	}
+
+	parentId, parentLink, err := GetParentLinkByReffer(referrer)
+	if err != nil {
+		return "", 0, err
+	}
+
+	mark := utils.GetRequestHeaderByName(c, "Mark")
+	devicePackage := utils.GetRequestHeaderByName(c, "Package")
+	imei := utils.GetRequestHeaderByName(c, "Imei")
+	oaid := utils.GetRequestHeaderByName(c, "Oaid")
+	ip := utils.RemoteIp(c)
+
+	if nickname == "" {
+		nickname = rand.GetRand().ChineseName()
+	}
+
+	user := models.McUser{
+		ParentId:   parentId,
+		ParentLink: parentLink,
+		Username:   username,
+		Passwd:     hashLoginPasswd(passwd),
+		Nickname:   nickname,
+		Invitation: utils.RandomString("code", 6),
+		Status:     1,
+		IsGuest:    0,
+		Deviceid:   deviceid,
+		Mark:       mark,
+		Oaid:       oaid,
+		Package:    devicePackage,
+		Ip:         ip,
+		Imei:       imei,
+		Addtime:    utils.GetUnix(),
+	}
+
+	if err = global.DB.Model(models.McUser{}).Create(&user).Error; err != nil {
+		global.Sqllog.Errorf("%v", err.Error())
+		return "", 0, err
+	}
+
+	// token 中不放明文密码，使用已存储的 hash
+	token, expireTime, err = utils.GenerateToken(user.Username, user.Passwd, 1)
+	if err != nil {
+		global.Errlog.Errorf("注册生成token失败 username=%v err=%v", username, err.Error())
+		return "", 0, err
+	}
+	return token, expireTime, nil
+}
 
 func GuestLogin(c *gin.Context, req *models.GuestLoginReq) (userInfo *models.McUser, token string, expireTime int64, err error) {
 	deviceid := strings.TrimSpace(req.Deviceid)
@@ -113,12 +194,61 @@ func GuestLogin(c *gin.Context, req *models.GuestLoginReq) (userInfo *models.McU
 // 用户登录
 func Login(c *gin.Context, req *models.LoginReq) (token string, expireTime int64, err error) {
 	loginType := req.LoginType
+	username := strings.TrimSpace(req.Username)
 	tel := strings.TrimSpace(req.Tel)
 	email := strings.TrimSpace(req.Email)
 	code := strings.TrimSpace(req.Code)
 	passwd := strings.TrimSpace(req.Passwd)
 	deviceid := strings.TrimSpace(req.Deviceid)
 	referrer := strings.TrimSpace(req.Referrer)
+
+	// 账号密码登录（推荐）
+	if username != "" {
+		if passwd == "" {
+			return "", 0, fmt.Errorf("%v", "密码不能为空")
+		}
+		var user *models.McUser
+		err = global.DB.Model(models.McUser{}).Where("username = ?", username).First(&user).Error
+		if err != nil || user == nil || user.Id <= 0 {
+			return "", 0, fmt.Errorf("%v", "账号不存在，请先注册")
+		}
+		if user.Status == 0 {
+			return "", 0, fmt.Errorf("%v", "账户已被锁定~")
+		}
+		if user.Passwd == "" || hashLoginPasswd(passwd) != user.Passwd {
+			return "", 0, fmt.Errorf("%v", "密码不正确~")
+		}
+
+		// 登录时同步更新设备信息（可选）
+		mark := utils.GetRequestHeaderByName(c, "Mark")
+		devicePackage := utils.GetRequestHeaderByName(c, "Package")
+		imei := utils.GetRequestHeaderByName(c, "Imei")
+		oaid := utils.GetRequestHeaderByName(c, "Oaid")
+		ip := utils.RemoteIp(c)
+		mu := map[string]interface{}{
+			"mark":            mark,
+			"imei":            imei,
+			"package":         devicePackage,
+			"ip":              ip,
+			"last_login_time": utils.GetUnix(),
+			"uptime":          utils.GetUnix(),
+		}
+		if deviceid != "" {
+			mu["deviceid"] = deviceid
+		}
+		if oaid != "" {
+			mu["oaid"] = oaid
+		}
+		_ = UpdateUserByUserId(user.Id, mu)
+
+		token, expireTime, err = utils.GenerateToken(user.Username, user.Passwd, 1)
+		if err != nil {
+			global.Errlog.Errorf("登录生成token失败 username=%v err=%v", username, err.Error())
+			return "", 0, err
+		}
+		return token, expireTime, nil
+	}
+
 	if tel == "" && email == "" {
 		err = fmt.Errorf("%v", "手机号或邮箱不能为空")
 		return

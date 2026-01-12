@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: API 用户控制器（登录/注册/用户信息等）
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:30:00
+ */
 package api
 
 import (
@@ -70,6 +77,25 @@ func (user *User) Guest(c *gin.Context) {
 		"expireTime": expireTime,
 	}
 	utils.SuccessEncrypt(c, res, "ok")
+}
+
+func (user *User) Register(c *gin.Context) {
+	var req models.RegisterReq
+	if err := c.ShouldBind(&req); err != nil {
+		utils.FailEncrypt(c, err, "")
+		return
+	}
+
+	token, expireTime, err := user_service.Register(c, &req)
+	if err != nil {
+		utils.FailEncrypt(c, err, "")
+		return
+	}
+	res := gin.H{
+		"token":      token,
+		"expireTime": expireTime,
+	}
+	utils.SuccessEncrypt(c, res, "注册成功~")
 }
 
 func (user *User) Login(c *gin.Context) {
