@@ -6,31 +6,35 @@ import (
 	"github.com/go-redis/redis/v8"
 	"go-novel/config"
 	"go-novel/global"
-	"go-novel/utils"
 	"log"
+	"strings"
 )
 
 func GetRedis() (addr string, passwd string, defaultdb int) {
-	//初始化数据库
-	env := config.GetString("server.env")
-	addr = "127.0.0.1:6379"
-	passwd = ""
-	defaultdb = 0
-	if env == utils.Dev {
-		passwd = "DmDw8vmGGe"
-	} else if env == utils.Prod {
-		addr = "192.168.10.17:6379" //使用96.35的redis进行链接
-		passwd = "cCoF3Yrqd9"
-	} else if env == utils.Local {
-
+	addr = strings.TrimSpace(config.GetString("redis.addr"))
+	if addr == "" {
+		host := strings.TrimSpace(config.GetString("redis.host"))
+		port := config.GetInt("redis.port")
+		if port == 0 {
+			port = 6379
+		}
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		if strings.Contains(host, ":") {
+			addr = host
+		} else {
+			addr = fmt.Sprintf("%s:%d", host, port)
+		}
 	}
-	//passwd = "o9kHvO95bP"
+	passwd = config.GetString("redis.password")
+	defaultdb = config.GetInt("redis.db")
 	return
 }
 
 // Redis 初始化Redis
 func InitRedis(addr string, passwd string, defaultdb int) *redis.Client {
-	redisClinet := redis.NewClient(&redis.Options{
+	redisClient := redis.NewClient(&redis.Options{
 		//Addr:     GetRedisConnString(),
 		//Password: config.GetString("gredis.password"),
 		//DB:       0,
@@ -40,13 +44,13 @@ func InitRedis(addr string, passwd string, defaultdb int) *redis.Client {
 	})
 
 	var ctx = context.Background()
-	err := redisClinet.Ping(ctx).Err()
-	if err != nil || redisClinet == nil {
+	err := redisClient.Ping(ctx).Err()
+	if err != nil || redisClient == nil {
 		log.Fatalln(fmt.Sprintf("初始化Redis异常：%v", err))
 	} else {
 		log.Println("gredis connect success")
 	}
 
-	global.Redis = redisClinet
-	return redisClinet
+	global.Redis = redisClient
+	return redisClient
 }

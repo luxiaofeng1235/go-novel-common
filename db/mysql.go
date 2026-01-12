@@ -12,56 +12,75 @@ import (
 	"gorm.io/gorm/schema"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
 func GetDB() (mysqlAddress, dbName, mysqlUser, mysqlPasswd string) {
-	//初始化数据库
-	env := config.GetString("server.env")
-	mysqlAddress = "127.0.0.1:3306"
-	mysqlUser = "novel"
-	mysqlPasswd = "dkke4DJjELz3Tccs"
-	if env == utils.Local {
-		mysqlAddress = "127.0.0.1"
-		mysqlUser = "root"
-		mysqlPasswd = "root"
-		dbName = utils.DbName
-	} else if env == utils.Dev {
-		mysqlAddress = "127.0.0.1"
-		dbName = utils.DbName
-		mysqlUser = "novel"
-		mysqlPasswd = "dkke4DJjELz3Tccs"
-	} else if env == utils.Prod {
-		//ip, _ := utils.GetLocalIP()
-		////判断是否为36那台机器，就加载36的方便测试
-		//if ip == utils.AdminHostIp {
-		//	mysqlAddress = "192.168.10.16:3306" //web的主机配置
-		//} else {
-		//线上API数据库连接
-		mysqlAddress = "192.168.10.15:3306" //线上的api地址
-		//}
-		dbName = utils.DbName
-		mysqlUser = "root"
-		mysqlPasswd = "HM9GO3JH3XrLoouh"
+	mysqlAddress = strings.TrimSpace(config.GetString("mysql.address"))
+	if mysqlAddress == "" {
+		host := strings.TrimSpace(config.GetString("mysql.host"))
+		port := config.GetInt("mysql.port")
+		if port == 0 {
+			port = 3306
+		}
+		if host == "" {
+			log.Fatal("缺少 MySQL 配置：请在 config.yml 中设置 mysql.host（以及 mysql.port）或 mysql.address")
+		}
+		if strings.Contains(host, ":") {
+			mysqlAddress = host
+		} else {
+			mysqlAddress = fmt.Sprintf("%s:%d", host, port)
+		}
 	}
+
+	dbName = strings.TrimSpace(config.GetString("mysql.database"))
+	if dbName == "" {
+		dbName = strings.TrimSpace(config.GetString("mysql.dbname"))
+	}
+	if dbName == "" {
+		dbName = strings.TrimSpace(config.GetString("mysql.name"))
+	}
+	if dbName == "" {
+		dbName = utils.DbName
+	}
+
+	mysqlUser = strings.TrimSpace(config.GetString("mysql.user"))
+	if mysqlUser == "" {
+		mysqlUser = "root"
+	}
+	mysqlPasswd = config.GetString("mysql.password")
 	return
 }
 
-func InitDB() {
+func InitDB(args ...string) {
 	//连接mysql
-	host, name, user, passwd := GetDB()
-	fmt.Println("mysql host:", host, "mysql name:", name, "mysql user:", user, "mysql passwd:", passwd)
+	var host, name, user, passwd string
+	switch len(args) {
+	case 0:
+		host, name, user, passwd = GetDB()
+	case 4:
+		host, name, user, passwd = args[0], args[1], args[2], args[3]
+	default:
+		log.Fatalf("InitDB 参数数量错误：期望 0 或 4 个参数，实际 %d 个", len(args))
+	}
+	fmt.Println("mysql addr:", host, "mysql db:", name, "mysql user:", user)
 	InitMysql(host, name, user, passwd)
 
 	//连接redis
 	addr, passwd, defaultdb := GetRedis()
-	fmt.Println("gredis addr:", addr, "gredis passwd:", passwd, "gredis defaultdb:", defaultdb)
+	fmt.Println("redis addr:", addr, "redis db:", defaultdb)
 	InitRedis(addr, passwd, defaultdb)
 
 }
 
 func InitMysql(address, dbname, user, passwd string) *gorm.DB {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, passwd, address, dbname)
+	params := strings.TrimSpace(config.GetString("mysql.params"))
+	if params == "" {
+		params = "charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	params = strings.TrimPrefix(params, "?")
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", user, passwd, address, dbname, params)
 
 	//fmt.Println("dsn:",dsn)
 
