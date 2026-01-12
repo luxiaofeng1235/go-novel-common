@@ -3,7 +3,7 @@
  * @Author: congz
  * @Date: 2020-07-15 14:48:46
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 10:25:00
+ * @LastEditTime: 2026-01-12 13:35:00
  */
 package db
 
@@ -55,7 +55,7 @@ func InitRedis(addr string, passwd string, defaultdb int) *redis.Client {
 	if err != nil || redisClient == nil {
 		log.Fatalln(fmt.Sprintf("初始化Redis异常：%v", err))
 	} else {
-		log.Println("gredis connect success")
+		fmt.Println("连接Redis成功")
 	}
 
 	global.Redis = redisClient

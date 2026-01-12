@@ -3,11 +3,12 @@
  * @Author: congz
  * @Date: 2020-07-15 14:48:46
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 11:45:00
+ * @LastEditTime: 2026-01-12 13:35:00
  */
 package db
 
 import (
+	"fmt"
 	"go-novel/routers/api_routes"
 	"log"
 )
@@ -18,6 +19,11 @@ func StartApiServer() {
 
 	host, name, user, passwd := GetDB()
 	InitMysql(host, name, user, passwd)
+
+	redisAddr, redisPasswd, redisDB := GetRedis()
+	fmt.Println("redis addr:", redisAddr, "redis db:", redisDB)
+	InitRedis(redisAddr, redisPasswd, redisDB)
+
 	InitZapLog()
 	InitWs()
 	api_routes.InitApiRoutes()
