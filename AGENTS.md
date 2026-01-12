@@ -16,6 +16,16 @@ _仓库指南_
 - `public/`：静态资源与 Casbin 配置（`public/casbin_conf/...`）。
 - `gofound-1.4.1/`：内嵌组件（自带代码/测试）；除非必要，避免改动。
 
+## 开发规范（Router → Controller → Service → Model）
+
+- 路由（Router）：只做“路径/方法/中间件/分组”注册，代码放在 `routers/*_routes/`（例如 `routers/api_routes/user_route.go`、`routers/source_routes/route.go`）。新增接口先加路由，再补 controller/service。
+- 控制器（Controller）：只做参数绑定、轻量校验、调用 service、统一返回；放在 `app/controller/<api|admin>/`。推荐统一使用 `utils.SuccessEncrypt()` / `utils.FailEncrypt()` 输出 JSON（保持前端兼容）。
+- 服务（Service）：承载业务逻辑与数据访问；放在 `app/service/<api|admin|common>/...`。DB 统一通过 `global.DB` 访问，避免在 controller 内直接写 SQL/GORM；尽量不要在 service 里直接写 HTTP 响应。
+- 模型（Model）：GORM 模型与请求结构体集中在 `app/models/`（如 `app/models/mc_user.go` 已包含 `LoginReq/RegisterReq/GuestLoginReq`）。新增表时：模型字段需有 `gorm:"column:..."`，并实现 `TableName()` 返回真实表名。
+- 强约束（必须遵守）：严禁在 `app/controller/...` 或 `app/models/...` 直接编写业务逻辑（包括：权限判断、状态机、落库/事务、复杂校验、跨表查询、第三方调用等）；所有业务处理必须“转发/下沉”到 `app/service/...` 统一实现与复用。
+- 依赖方向：`routers` → `app/controller` → `app/service` → `app/models`（单向依赖）；禁止反向引用（例如 models 引用 service/routers）。
+- 示例（新增一个 API 接口）：1) `routers/api_routes/*.go` 注册 `POST /api/xxx`；2) `app/controller/api/xxx.go` `ShouldBind` 到 `models.*Req`；3) `app/service/api/xxx_service/*.go` 实现核心逻辑；4) 需要落库则补 `app/models/*.go`。
+
 ## 构建、测试与本地开发命令
 
 - 初始化本地配置：`cp config.yml.dev config.yml`（不要提交 `config.yml`）。
