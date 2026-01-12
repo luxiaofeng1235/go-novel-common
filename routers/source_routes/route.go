@@ -3,7 +3,7 @@
  * @Author: red
  * @Date: 2026-01-12 11:58:00
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 11:58:00
+ * @LastEditTime: 2026-01-12 13:25:00
  */
 package source_routes
 
@@ -43,10 +43,15 @@ func InitSourceRoutes() {
 }
 
 func getHttpString() string {
+	var host string
 	var port string
+	flag.StringVar(&host, "host", viper.GetString("source.host"), "default host")
 	flag.StringVar(&port, "port", viper.GetString("source.port"), "default :port")
 	flag.Parse()
-	return fmt.Sprintf(":%s", port)
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	return fmt.Sprintf("%s:%s", host, port)
 }
 
 func sourceRouter(r *gin.Engine) *gin.Engine {
@@ -84,4 +89,3 @@ func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
-

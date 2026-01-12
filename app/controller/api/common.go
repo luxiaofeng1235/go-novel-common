@@ -8,9 +8,10 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
 	"go-novel/app/service/common/file_service"
 	"go-novel/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Common struct{}
@@ -26,7 +27,7 @@ func (common *Common) Upload(c *gin.Context) {
 		return
 	}
 	subDir := c.PostForm("dir")
-
+	//上传图片
 	res, err := file_service.LocalUpload(fileHeader, subDir)
 	if err != nil {
 		utils.FailEncrypt(c, err, "")

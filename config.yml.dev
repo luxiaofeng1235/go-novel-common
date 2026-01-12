@@ -7,10 +7,12 @@ server:
 
 api:
   encrypt: false
+  host: 0.0.0.0
   port: 8005
   apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
 
 source:
+  host: 0.0.0.0
   port: 8007
   apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
   # 可选：显式指定静态资源访问域名（优先级最高），如 http://127.0.0.1:8007
