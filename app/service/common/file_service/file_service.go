@@ -9,7 +9,6 @@ package file_service
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"go-novel/utils"
 	"mime/multipart"
 	"net/url"
@@ -17,6 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/spf13/viper"
 )
 
 type UploadResult struct {
@@ -121,7 +122,7 @@ func buildPublicURL(publicPath string) string {
 
 	apiURL := strings.TrimSpace(viper.GetString("source.apiUrl"))
 	if apiURL == "" {
-		apiURL = "http://127.0.0.1"
+		apiURL = viper.GetString("api.apiUrl")
 	}
 	sourcePort := strings.TrimSpace(viper.GetString("source.port"))
 
