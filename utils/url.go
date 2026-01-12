@@ -1,10 +1,16 @@
+/*
+ * @Descripttion: URL/路径处理工具
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 11:45:00
+ */
 package utils
 
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"go-novel/app/service/admin/setting_service"
 	"go-novel/config"
 	"go-novel/global"
 	"io/ioutil"
@@ -92,19 +98,9 @@ func ParseLocalUrl(path string) (newfile string) {
 	//优先判断路径是否为本地，如果非本地直接返回，本地才进行逻辑判断
 	if env != Local {
 		return path
-	} else { //判断本地路径替换成实际的真实路径
-		uploadCommonPath, _ := setting_service.GetValueByName("uploadCommonPath")
-		if uploadCommonPath != "" {
-			//处理新的业务逻辑
-			newfile = strings.ReplaceAll(path, LOCALUPLOAD, "")
-			newfile = strings.ReplaceAll(newfile, "/", "\\")
-			fileUrl := fmt.Sprintf("%v%v", uploadCommonPath, newfile)
-			return fileUrl
-		} else {
-			//默认返回路径信息
-			return path
-		}
 	}
+	// 脚手架最小实现：不依赖数据库配置表，直接返回传入路径
+	return path
 }
 
 // 获取对应的apk的下载链接

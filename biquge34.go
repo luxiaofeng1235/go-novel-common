@@ -22,8 +22,6 @@ func main() {
 	addr, passwd, defaultdb := db.GetRedis()
 	db.InitRedis(addr, passwd, defaultdb)
 	db.InitZapLog()
-	db.InitNsqProducer()
-	db.InitNsqConsumer()
 	//bookUrl := "https://www.biquge34.net/article/111930/"
 	//bookName := "农门医妻"
 	//author := "林十五"
