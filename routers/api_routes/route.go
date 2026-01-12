@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"go-novel/middleware"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -34,7 +35,13 @@ func InitApiRoutes(addr string) {
 		ReadTimeout:  1 * time.Minute,
 		WriteTimeout: 1 * time.Minute,
 	}
-	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+
+	// 强制使用 IPv4 监听，避免 Windows 侧仅出现 [::1] 导致 127.0.0.1 无法访问
+	ln, err := net.Listen("tcp4", s.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := s.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }
