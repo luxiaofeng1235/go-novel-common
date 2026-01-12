@@ -214,24 +214,58 @@ func RemoveEditorFile(content string) (err error) {
 
 // 获取富文本图片地址
 func GetEditorImage(content string) []string {
-	imgUrl := `<img[\s\S]*?src\s*=\s*[\"|\'](.*?)[\"|\'][\s\S]*?>`
+	imgUrl := `(?i)<img[\s\S]*?src\s*=\s*[\"|\']([^\"|\']+)[\"|\'][\s\S]*?>`
 	//reSuperUrl := `<img.*?src\=\"(.*?)\"[^>]*>`
 	//videoUrl :=<video.*?src\=\"(.*?)\"[^>]*>
 	reg := regexp.MustCompile(imgUrl)
 	list := reg.FindAllStringSubmatch(content, -1)
 	//log.Println("总共: ", len(list))
-	adminUrl := GetAdminUrl()
+	adminUrl := strings.TrimSpace(GetAdminUrl())
+	sourcePublicBaseUrl := strings.TrimSpace(GetSourcePublicBaseUrl())
+	seen := make(map[string]struct{}, len(list))
 	var imgs []string
 	if len(list) > 0 {
 		for _, v := range list {
 			if len(v) > 1 {
-				imgPath := v[1]
-				if strings.Contains(imgPath, "localhost") || strings.Contains(imgPath, "127.0.0.1") || strings.Contains(imgPath, adminUrl) {
-					index := strings.Index(imgPath, "public")
-					imgs = append(imgs, imgPath[index:])
-				} else {
-					imgs = append(imgs, imgPath)
+				imgPath := strings.TrimSpace(v[1])
+				if imgPath == "" || strings.HasPrefix(imgPath, "data:") {
+					continue
 				}
+
+				// 去掉 query/fragment，便于本地删除
+				imgPath = strings.SplitN(imgPath, "#", 2)[0]
+				imgPath = strings.SplitN(imgPath, "?", 2)[0]
+
+				// 如果是 /public/... /resource/... 这种路径，转成相对路径，避免误删到根目录
+				if strings.HasPrefix(imgPath, "/public/") || strings.HasPrefix(imgPath, "/resource/") {
+					imgPath = strings.TrimPrefix(imgPath, "/")
+				} else {
+					shouldStrip := strings.Contains(imgPath, "localhost") || strings.Contains(imgPath, "127.0.0.1")
+					if adminUrl != "" && strings.Contains(imgPath, adminUrl) {
+						shouldStrip = true
+					}
+					if sourcePublicBaseUrl != "" && strings.Contains(imgPath, sourcePublicBaseUrl) {
+						shouldStrip = true
+					}
+					if shouldStrip {
+						// 优先从 /public/ 或 /resource/ 开始截取为相对路径
+						if index := strings.Index(imgPath, "/public/"); index >= 0 {
+							imgPath = strings.TrimPrefix(imgPath[index:], "/")
+						} else if index := strings.Index(imgPath, "public/"); index >= 0 {
+							imgPath = imgPath[index:]
+						} else if index := strings.Index(imgPath, "/resource/"); index >= 0 {
+							imgPath = strings.TrimPrefix(imgPath[index:], "/")
+						} else if index := strings.Index(imgPath, "resource/"); index >= 0 {
+							imgPath = imgPath[index:]
+						}
+					}
+				}
+
+				if _, ok := seen[imgPath]; ok {
+					continue
+				}
+				seen[imgPath] = struct{}{}
+				imgs = append(imgs, imgPath)
 			}
 		}
 	}

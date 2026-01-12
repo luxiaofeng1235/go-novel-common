@@ -63,6 +63,11 @@ func GetApiEncrypt() bool {
 	return viper.GetBool("api.encrypt")
 }
 
+// 获取静态资源对外访问的基础域名（优先使用 source.publicBaseUrl）
+func GetSourcePublicBaseUrl() string {
+	return viper.GetString("source.publicBaseUrl")
+}
+
 func GetFileUrl(path string) (fileUrl string) {
 	if strings.Contains(path, "http") {
 		fileUrl = path
