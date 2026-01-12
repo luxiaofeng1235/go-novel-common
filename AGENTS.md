@@ -21,6 +21,7 @@ _仓库指南_
 - 初始化本地配置：`cp config.yml.dev config.yml`（不要提交 `config.yml`）。
 - 数据库与缓存连接统一从 `config.yml` 读取：`mysql.*`、`redis.*`（示例见 `config.yml.dev`）。
 - 入口规范（底层改造约定）：`api.go` / `admin.go` 入口文件保持“最小化”，只负责调用 `db.StartApiServer()` / `db.StartAdminServer()` 等启动函数；不要在入口里堆叠复杂参数解析、服务编排或业务初始化逻辑，统一收敛到 `db/` 的启动编排代码中。
+- 端口与模块约定（默认）：`api=8006`、`admin=8005`、`source=8007`；配置上分别使用 `api.port`、`admin.port`、`source.port`，静态资源访问域名使用 `source.publicBaseUrl`（可选）与 `admin.adminUrl`（后台资源域名）。
 - 运行服务（在仓库根目录）：
   - `go run ./api.go`（API 服务）
   - `go run ./admin.go`（后台服务）
