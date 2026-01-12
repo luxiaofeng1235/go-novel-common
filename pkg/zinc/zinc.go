@@ -1,12 +1,11 @@
 package zinc
 
 import (
-	"github.com/cockroachdb/errors"
-	"github.com/go-resty/resty/v2"
-	"go-novel/config"
-	"go-novel/utils"
 	"net/http"
 	"time"
+
+	"github.com/cockroachdb/errors"
+	"github.com/go-resty/resty/v2"
 )
 
 type ZincClient struct {
@@ -43,17 +42,4 @@ func (c *ZincClient) request() *resty.Request {
 	client.SetBaseURL(c.ZincHost)
 	client.SetBasicAuth(c.ZincUser, c.ZincPassword)
 	return client.R()
-}
-
-// NewConfig initializes the Zinc configuration
-func NewConfig() (string, string, string) {
-	env := config.GetString("server.env")
-
-	if env == utils.Local {
-		return "http://103.36.91.96:4080", "admin", "SInR5cCI6IkpXV#25"
-	} else if env == utils.Dev {
-		return "http://127.0.0.1:4080", "admin", "SInR5cCI6IkpXV#25"
-	} else {
-		return "http://127.0.0.1:4080", "admin", "SInR5cCI6IkpXV#25"
-	}
 }
