@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// jwt token验证中间件
+// jwt token验证中间件1
 func AdminJwt() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
