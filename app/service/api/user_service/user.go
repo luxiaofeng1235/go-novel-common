@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"go-novel/app/models"
 	"go-novel/global"
+	"strings"
 )
 
 // GetUserByDeviceAndOaid deviceid/oaid 不会同时为空；优先按 oaid 查找。
@@ -57,4 +58,24 @@ func UpdateUserByUserId(userId int64, md map[string]interface{}) (err error) {
 		return nil
 	}
 	return global.DB.Model(models.McUser{}).Where("id", userId).Updates(md).Error
+}
+
+// 根据手机号查询用户信息
+func getUserByMobile(mobile string) (user *models.McUser, err error) {
+	mobile = strings.TrimSpace(mobile)
+	err = global.DB.Where("mobile = ?", mobile).Find(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// 根据邮箱查询用户信息
+func getUserByEmail(email string) (user *models.McUser, err error) {
+	email = strings.TrimSpace(email)
+	err = global.DB.Where("email = ?", email).Find(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
