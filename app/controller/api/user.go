@@ -8,10 +8,11 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
 	"go-novel/app/models"
 	"go-novel/app/service/api/user_service"
 	"go-novel/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 type User struct{}
@@ -24,14 +25,12 @@ func (user *User) Guest(c *gin.Context) {
 		utils.FailEncrypt(c, err, "")
 		return
 	}
-
 	//游客登录判断
 	userInfo, token, expireTime, err := user_service.GuestLogin(c, &req)
 	if err != nil {
 		utils.FailEncrypt(c, err, "")
 		return
 	}
-
 	res := gin.H{
 		"user":       userInfo,
 		"token":      token,
@@ -59,6 +58,7 @@ func (user *User) Register(c *gin.Context) {
 	utils.SuccessEncrypt(c, res, "注册成功~")
 }
 
+// 登录流程
 func (user *User) Login(c *gin.Context) {
 	var req models.LoginReq
 	// 参数绑定
