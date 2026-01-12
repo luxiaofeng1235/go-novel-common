@@ -43,16 +43,20 @@ func GetSite(c *gin.Context) string {
 
 // 获取后台图片资源的地址
 func GetAdminUrl() string {
-	return viper.GetString("server.AdminUrl")
+	if val := viper.GetString("admin.adminUrl"); strings.TrimSpace(val) != "" {
+		return val
+	}
+	// 兼容旧字段
+	return viper.GetString("server.adminUrl")
 }
 
 // 获取提供给对外的下载域名
 func GetDownUrl() string {
-	return viper.GetString("server.DownUrl")
+	return viper.GetString("server.downUrl")
 }
 
 func GetApiUrl() string {
-	return viper.GetString("api.ApiUrl")
+	return viper.GetString("api.apiUrl")
 }
 
 func GetApiEncrypt() bool {
