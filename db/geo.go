@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: GeoLite2 数据库加载（可选）
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:25:00
+ */
 package db
 
 import (

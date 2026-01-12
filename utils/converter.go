@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: Model 转换工具（读取 config.yml 的 MySQL 配置）
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:25:00
+ */
 package utils
 
 import (

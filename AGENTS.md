@@ -34,6 +34,8 @@ _仓库指南_
 - Go 代码统一使用 `gofmt`（标准 Go 格式；默认 tab 缩进）。如团队使用 `goimports` 可优先。
 - 目录/包名使用小写（如 `routers/api_routes`）；导出标识符使用 `CamelCase`。
 - 路由文件放在 `routers/*_routes/`，处理器实现放在 `app/controller/...`，避免交叉堆放。
+- 文件头注释统一使用以下模板；新增文件 `@Author` / `@LastEditors` 统一写 `red`：
+  - `/* @Descripttion: ... @Author: ... @Date: ... @LastEditors: ... @LastEditTime: ... */`
 
 ## 测试指南
 

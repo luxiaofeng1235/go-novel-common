@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: 可选能力占位（默认关闭：OSS/Qiniu 上传、短信验证码等）
+ * @Author: red
+ * @Date: 2026-01-12 10:25:00
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 10:25:00
+ */
 package utils
 
 import (
