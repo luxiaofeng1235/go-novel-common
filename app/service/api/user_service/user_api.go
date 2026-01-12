@@ -9,13 +9,14 @@ package user_service
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/goroom/rand"
 	"go-novel/app/models"
 	"go-novel/config"
 	"go-novel/global"
 	"go-novel/utils"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/goroom/rand"
 )
 
 func hashLoginPasswd(plain string) string {
@@ -142,7 +143,7 @@ func Register(c *gin.Context, req *models.RegisterReq) (token string, expireTime
 	if nickname == "" {
 		nickname = rand.GetRand().ChineseName()
 	}
-
+	//类型注入和依赖管理
 	user := models.McUser{
 		ParentId:   parentId,
 		ParentLink: parentLink,
