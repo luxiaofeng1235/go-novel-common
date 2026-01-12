@@ -3,7 +3,7 @@
  * @Author: congz
  * @Date: 2020-07-15 14:48:46
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 13:55:00
+ * @LastEditTime: 2026-01-12 14:00:00
  */
 package db
 
@@ -52,10 +52,11 @@ func StartApiServer() {
 	fmt.Println("redis addr:", redisAddr, "redis db:", redisDB)
 	InitRedis(redisAddr, redisPasswd, redisDB)
 
+	// 静态资源服务依赖上传落盘目录（不依赖 DB），但启动顺序上放在 MySQL/Redis 成功之后
+	go source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort))
+
 	InitZapLog()
 	InitWs()
 
-	// 默认同进程启动静态资源服务（source）
-	go source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort))
 	api_routes.InitApiRoutes(fmt.Sprintf("%s:%s", apiHost, apiPort))
 }
