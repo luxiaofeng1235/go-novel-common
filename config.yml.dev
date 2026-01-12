@@ -17,6 +17,8 @@ biquge:
 source:
   port: 8007
   apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
+  # 可选：显式指定静态资源访问域名（优先级最高），如 http://127.0.0.1:8007
+  publicBaseUrl: ""
 
 #casbin配置
 casbin:
@@ -48,6 +50,13 @@ redis:
   port: 6379
   password: ""
   db: 0
+
+# 本地上传配置（由 /api/common/upload 使用；文件实际保存在 baseDir，对外通过 source 静态服务访问）
+upload:
+  # 本地存储根目录（建议在 public 下，便于 source 服务直接暴露）
+  baseDir: "./public/upload"
+  # 对外访问的 URL 前缀（应与 routers/source_routes 挂载一致）
+  publicPathPrefix: "/public/upload"
 
 logs:
   # 日志等级(-1:Debug, 0:Info, 1:Warn, 2:Error, 3:DPanic, 4:Panic, 5:Fatal, -1<=level<=5, 参照zap.level源码)

@@ -3,7 +3,7 @@
  * @Author: congz
  * @Date: 2020-07-15 14:48:46
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 11:10:00
+ * @LastEditTime: 2026-01-12 12:20:00
  */
 package api_routes
 
@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"go-novel/config"
 	"go-novel/middleware"
 	"log"
 	"net/http"
@@ -52,10 +51,8 @@ func getHttpString() string {
 // api路由
 func apiRouter(r *gin.Engine) *gin.Engine {
 	system := r.Group("api")
-	if config.GetBool("api.encrypt") {
-		system.Use(middleware.ApiReqDecrypt())
-	}
 	initUserRoutes(system)
+	initCommonRoutes(system)
 	initWsRoutes(system)
 	log.Println("初始化路由完成！")
 	return r

@@ -1,6 +1,14 @@
+/*
+ * @Descripttion: 文件处理工具（包含本地上传）
+ * @Author: congz
+ * @Date: 2020-07-15 14:48:46
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-12 12:15:00
+ */
 package utils
 
 import (
+	"crypto/rand"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -21,7 +29,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // GetImageName 获取图片名称
@@ -58,6 +68,56 @@ func GetSize(f multipart.File) (int, error) {
 // GetExt 获取文件后缀
 func GetExt(fileName string) string {
 	return strings.TrimLeft(path.Ext(fileName), ".")
+}
+
+// SaveMultipartFile 保存上传文件到本地目录（dstDir 必须是本地目录路径，不是 URL）
+func SaveMultipartFile(fileHeader *multipart.FileHeader, dstDir, dstFilename string) (savedFullPath string, err error) {
+	if fileHeader == nil {
+		return "", fmt.Errorf("上传文件不能为空")
+	}
+	if dstDir == "" {
+		return "", fmt.Errorf("dstDir 不能为空")
+	}
+	if dstFilename == "" {
+		return "", fmt.Errorf("dstFilename 不能为空")
+	}
+
+	if err = IsNotExistMkDir(dstDir); err != nil {
+		return "", err
+	}
+
+	src, err := fileHeader.Open()
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	savedFullPath = filepath.Join(dstDir, dstFilename)
+	dst, err := os.Create(savedFullPath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, src); err != nil {
+		return "", err
+	}
+	return savedFullPath, nil
+}
+
+// NewRandomFilename 基于原始文件名生成随机文件名（保留扩展名）
+func NewRandomFilename(originalName string) string {
+	ext := ""
+	if originalName != "" {
+		ext = filepath.Ext(originalName)
+	}
+
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 兜底：时间戳 + pid
+		return strconv.FormatInt(time.Now().UnixNano(), 10) + ext
+	}
+	return fmt.Sprintf("%x%s", b, ext)
 }
 
 // CheckNotExist 检查目录是否存在 返回true不存在
