@@ -3,13 +3,12 @@
  * @Author: congz
  * @Date: 2020-07-15 14:48:46
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 13:25:00
+ * @LastEditTime: 2026-01-12 13:45:00
  */
 package api_routes
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -19,7 +18,7 @@ import (
 	"time"
 )
 
-func InitApiRoutes() {
+func InitApiRoutes(addr string) {
 	if viper.GetBool("api.debug") || viper.GetBool("server.debug") {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -30,7 +29,7 @@ func InitApiRoutes() {
 	r.Use(gin.Logger(), gin.Recovery(), middleware.Cors())
 	r = apiRouter(r)
 	s := &http.Server{
-		Addr:         getHttpString(),
+		Addr:         getHttpString(addr),
 		Handler:      r,
 		ReadTimeout:  1 * time.Minute,
 		WriteTimeout: 1 * time.Minute,
@@ -41,14 +40,17 @@ func InitApiRoutes() {
 }
 
 // 获取启动地址
-func getHttpString() string {
-	var host string
-	var port string
-	flag.StringVar(&host, "host", viper.GetString("api.host"), "default host")
-	flag.StringVar(&port, "port", viper.GetString("api.port"), "default :port")
-	flag.Parse()
+func getHttpString(addr string) string {
+	if addr != "" {
+		return addr
+	}
+	host := viper.GetString("api.host")
+	port := viper.GetString("api.port")
 	if host == "" {
 		host = "0.0.0.0"
+	}
+	if port == "" {
+		port = "8005"
 	}
 	return fmt.Sprintf("%s:%s", host, port)
 }

@@ -3,13 +3,12 @@
  * @Author: red
  * @Date: 2026-01-12 11:58:00
  * @LastEditors: red
- * @LastEditTime: 2026-01-12 13:25:00
+ * @LastEditTime: 2026-01-12 13:45:00
  */
 package source_routes
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -20,7 +19,7 @@ import (
 	"time"
 )
 
-func InitSourceRoutes() {
+func InitSourceRoutes(addr string) {
 	if viper.GetBool("source.debug") || viper.GetBool("server.debug") {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -32,7 +31,7 @@ func InitSourceRoutes() {
 
 	r = sourceRouter(r)
 	s := &http.Server{
-		Addr:         getHttpString(),
+		Addr:         getHttpString(addr),
 		Handler:      r,
 		ReadTimeout:  1 * time.Minute,
 		WriteTimeout: 1 * time.Minute,
@@ -42,14 +41,17 @@ func InitSourceRoutes() {
 	}
 }
 
-func getHttpString() string {
-	var host string
-	var port string
-	flag.StringVar(&host, "host", viper.GetString("source.host"), "default host")
-	flag.StringVar(&port, "port", viper.GetString("source.port"), "default :port")
-	flag.Parse()
+func getHttpString(addr string) string {
+	if addr != "" {
+		return addr
+	}
+	host := viper.GetString("source.host")
+	port := viper.GetString("source.port")
 	if host == "" {
 		host = "0.0.0.0"
+	}
+	if port == "" {
+		port = "8007"
 	}
 	return fmt.Sprintf("%s:%s", host, port)
 }
