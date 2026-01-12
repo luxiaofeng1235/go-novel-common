@@ -471,7 +471,7 @@ func DeleteBucketPic(filePath string) (err error) {
 		Key:    aws.String(filePath),
 	})
 	if err != nil {
-		err = fmt.Errorf("删除仓库图片失败:", err.Error())
+		err = fmt.Errorf("删除仓库图片失败:%v", err.Error())
 		return
 	}
 	return
