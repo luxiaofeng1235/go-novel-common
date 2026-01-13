@@ -13,8 +13,9 @@ import (
 	"go-novel/config"
 	"go-novel/global"
 	"go-novel/utils"
-	"gorm.io/gorm"
 	"strings"
+
+	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 	"github.com/goroom/rand"
@@ -235,6 +236,7 @@ func Logoff(c *gin.Context, userID int64) error {
 	var user models.McUser
 	if err := global.DB.Model(models.McUser{}).Where("id = ?", userID).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
+			global.Sqllog.Errorf("用户不能存在 ：%v", err.Error())
 			return fmt.Errorf("用户不存在")
 		}
 		return err
