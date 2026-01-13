@@ -220,7 +220,6 @@ func GetEditorImage(content string) []string {
 	reg := regexp.MustCompile(imgUrl)
 	list := reg.FindAllStringSubmatch(content, -1)
 	//log.Println("总共: ", len(list))
-	adminUrl := strings.TrimSpace(GetAdminUrl())
 	sourcePublicBaseUrl := strings.TrimSpace(GetSourcePublicBaseUrl())
 	seen := make(map[string]struct{}, len(list))
 	var imgs []string
@@ -241,9 +240,6 @@ func GetEditorImage(content string) []string {
 					imgPath = strings.TrimPrefix(imgPath, "/")
 				} else {
 					shouldStrip := strings.Contains(imgPath, "localhost") || strings.Contains(imgPath, "127.0.0.1")
-					if adminUrl != "" && strings.Contains(imgPath, adminUrl) {
-						shouldStrip = true
-					}
 					if sourcePublicBaseUrl != "" && strings.Contains(imgPath, sourcePublicBaseUrl) {
 						shouldStrip = true
 					}

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"go-novel/utils"
 	"mime/multipart"
-	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -117,33 +116,15 @@ func buildPublicURL(publicPath string) string {
 	if strings.TrimSpace(publicPath) == "" {
 		return ""
 	}
-
-	// 优先显式配置（推荐）
-	if base := strings.TrimSpace(viper.GetString("source.publicBaseUrl")); base != "" {
-		return strings.TrimRight(base, "/") + publicPath
+	base := strings.TrimRight(utils.GetSourceBaseUrl(), "/")
+	if base == "" {
+		// 兜底：至少保证能拼出一个 URL，避免上传接口因配置缺失直接不可用
+		base = strings.TrimRight(utils.GetApiUrl(), "/")
 	}
-
-	apiURL := strings.TrimSpace(viper.GetString("source.apiUrl"))
-	if apiURL == "" {
-		apiURL = viper.GetString("server.apiUrl")
+	if base == "" {
+		return publicPath
 	}
-	sourcePort := strings.TrimSpace(viper.GetString("source.port"))
-
-	u, err := url.Parse(apiURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		// 兜底：把它当成 host
-		host := strings.TrimRight(apiURL, "/")
-		if sourcePort != "" && !strings.Contains(host, ":") {
-			host = host + ":" + sourcePort
-		}
-		return host + publicPath
-	}
-
-	if sourcePort != "" && u.Port() == "" {
-		u.Host = u.Host + ":" + sourcePort
-	}
-	u.Path = strings.TrimRight(u.Path, "/") + publicPath
-	return u.String()
+	return base + publicPath
 }
 
 func validateUploadFile(fileHeader *multipart.FileHeader) error {

@@ -41,13 +41,9 @@ func GetSite(c *gin.Context) string {
 	return GetScheme(c) + "://" + c.Request.Host
 }
 
-// 获取后台图片资源的地址
+// GetAdminUrl 兼容旧函数：当前脚手架约定静态资源统一走 source 服务，因此返回 source 的基础域名
 func GetAdminUrl() string {
-	if val := viper.GetString("admin.adminUrl"); strings.TrimSpace(val) != "" {
-		return val
-	}
-	// 兼容旧字段
-	return viper.GetString("server.adminUrl")
+	return GetSourceBaseUrl()
 }
 
 // 获取提供给对外的下载域名
@@ -76,19 +72,59 @@ func GetSourcePublicBaseUrl() string {
 	return viper.GetString("source.publicBaseUrl")
 }
 
+// 获取静态资源服务基础域名（优先 source.publicBaseUrl，其次 source.apiUrl + source.port）
+func GetSourceBaseUrl() string {
+	if base := strings.TrimSpace(viper.GetString("source.publicBaseUrl")); base != "" {
+		return strings.TrimRight(base, "/")
+	}
+
+	apiURL := strings.TrimSpace(viper.GetString("source.apiUrl"))
+	sourcePort := strings.TrimSpace(viper.GetString("source.port"))
+	if apiURL == "" {
+		apiURL = strings.TrimSpace(viper.GetString("server.apiUrl"))
+	}
+	if apiURL == "" {
+		return ""
+	}
+
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		// 兜底：把它当成 host
+		host := strings.TrimRight(apiURL, "/")
+		if sourcePort != "" && !strings.Contains(host, ":") {
+			host = host + ":" + sourcePort
+		}
+		return host
+	}
+
+	if sourcePort != "" && u.Port() == "" {
+		u.Host = u.Host + ":" + sourcePort
+	}
+
+	basePath := strings.TrimRight(u.Path, "/")
+	if basePath == "" || basePath == "." {
+		basePath = ""
+	}
+	return strings.TrimRight(fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, basePath), "/")
+}
+
 func GetFileUrl(path string) (fileUrl string) {
 	if strings.Contains(path, "http") {
 		fileUrl = path
 	} else if path != "" {
-		fileUrl = fmt.Sprintf("%v%v", GetApiUrl(), path)
+		base := GetSourceBaseUrl()
+		if strings.TrimSpace(base) == "" {
+			base = GetApiUrl()
+		}
+		fileUrl = fmt.Sprintf("%v%v", base, path)
 		if !FileExist(path) {
-			fileUrl = fmt.Sprintf("%v%v", GetApiUrl(), DefaultPic)
+			fileUrl = fmt.Sprintf("%v%v", base, DefaultPic)
 		} else if strings.Contains(path, ".apk") {
 			// 如果是apk文件，直接返回拼接的url
-			fileUrl = fmt.Sprintf("%v%v", GetApiUrl(), path)
+			fileUrl = fmt.Sprintf("%v%v", base, path)
 		} else if !IsPic(path) {
 			// 不是图片文件，返回默认图片
-			fileUrl = fmt.Sprintf("%v%v", GetApiUrl(), DefaultPic)
+			fileUrl = fmt.Sprintf("%v%v", base, DefaultPic)
 		}
 	}
 
@@ -135,24 +171,25 @@ func GetAdminFileUrl(path string) (fileUrl string) {
 	isHttp := strings.Contains(path, "http")
 	spath := path              //先保留当前的路径信息方便做存储
 	path = ParseLocalUrl(path) //解析是否为本地路径，如果是替换对应的路径信息，如果不是就返回默认的
+	sourceBase := GetSourceBaseUrl()
 	//线上的配置信息
 	if isHttp == false {
 		if path != "" {
-			fileUrl = fmt.Sprintf("%v%v", GetAdminUrl(), spath)
+			fileUrl = fmt.Sprintf("%v%v", sourceBase, spath)
 			if !FileExist(path) { //文件不存在的时候
-				fileUrl = fmt.Sprintf("%v%v", GetAdminUrl(), DefaultPic)
+				fileUrl = fmt.Sprintf("%v%v", sourceBase, DefaultPic)
 				log.Println(111, path)
 				return
 			} else { //判断文件存在的情况
 				//判断如果是apk文件直接返回不需要判断
 				if (strings.Contains(path, ".apk")) != false {
-					fileUrl = fmt.Sprintf("%v%v", GetAdminUrl(), spath)
+					fileUrl = fmt.Sprintf("%v%v", sourceBase, spath)
 					return
 				} else {
 					isPic := IsPic(path)
 					if !isPic {
 						log.Println(222, path)
-						fileUrl = fmt.Sprintf("%v%v", GetAdminUrl(), DefaultPic)
+						fileUrl = fmt.Sprintf("%v%v", sourceBase, DefaultPic)
 						return
 					}
 				}
