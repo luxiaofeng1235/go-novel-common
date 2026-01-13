@@ -98,7 +98,7 @@ func GuestLogin(c *gin.Context, req *models.GuestLoginReq) (userInfo *models.McU
 		_ = UpdateUserByUserId(userInfo.Id, mu)
 	}
 
-	token, expireTime, err = utils.GenerateToken(userInfo.Username, userInfo.Passwd, 1)
+	token, expireTime, err = utils.GenerateToken(userInfo.Id, userInfo.Username, 1)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -166,7 +166,7 @@ func Register(c *gin.Context, req *models.RegisterReq) (token string, expireTime
 		return "", 0, err
 	}
 
-	token, expireTime, err = utils.GenerateToken(user.Username, user.Passwd, 1)
+	token, expireTime, err = utils.GenerateToken(user.Id, user.Username, 1)
 	if err != nil {
 		return "", 0, err
 	}
@@ -218,7 +218,7 @@ func Login(c *gin.Context, req *models.LoginReq) (token string, expireTime int64
 	}
 	_ = UpdateUserByUserId(user.Id, mu)
 
-	token, expireTime, err = utils.GenerateToken(user.Username, user.Passwd, 1)
+	token, expireTime, err = utils.GenerateToken(user.Id, user.Username, 1)
 	if err != nil {
 		return "", 0, err
 	}

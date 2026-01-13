@@ -20,6 +20,7 @@ func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 		user.POST("/guest", userApi.Guest)
 		user.POST("/register", userApi.Register)
 		user.POST("/login", userApi.Login)
+		user.GET("/info", middleware.AuthUser(), userApi.Info)
 
 		//get请求
 		user.GET("/guest", userApi.Guest)

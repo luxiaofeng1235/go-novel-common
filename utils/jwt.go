@@ -26,20 +26,20 @@ func getJwtSecret() []byte {
 
 // Claims ...
 type Claims struct {
+	UserID    int64  `json:"userId"`
 	Username  string `json:"username"`
-	Password  string `json:"password"`
 	Authority int    `json:"authority"`
 	jwt.StandardClaims
 }
 
 // GenerateToken 签发用户Token
-func GenerateToken(username, password string, authority int) (string, int64, error) {
+func GenerateToken(userID int64, username string, authority int) (string, int64, error) {
 	nowTime := time.Now()
 	expireTime := nowTime.Add(time.Duration(ExpireTime) * time.Hour * 90)
 
 	claims := Claims{
+		userID,
 		username,
-		password,
 		authority,
 		jwt.StandardClaims{
 			ExpiresAt: expireTime.Unix(),
@@ -84,7 +84,7 @@ func RefreshToken(tokenString string) (string, int64, error) {
 		return "", 0, err
 	}
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return GenerateToken(claims.Username, claims.Password, 1)
+		return GenerateToken(claims.UserID, claims.Username, 1)
 	}
 	return "", 0, errors.New("token刷新失败")
 }
