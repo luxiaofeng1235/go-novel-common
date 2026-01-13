@@ -45,6 +45,9 @@ func GetUserInfoByUserID(userID int64) (user *models.McUser, error error) {
 		}
 		return nil, err
 	}
+	if user.Status == 0 {
+		return nil, fmt.Errorf("账户已被锁定~")
+	}
 	user.Passwd = ""
 	return user, nil
 }

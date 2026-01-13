@@ -13,6 +13,7 @@ import (
 	"go-novel/config"
 	"go-novel/global"
 	"go-novel/utils"
+	"gorm.io/gorm"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -223,4 +224,28 @@ func Login(c *gin.Context, req *models.LoginReq) (token string, expireTime int64
 		return "", 0, err
 	}
 	return token, expireTime, nil
+}
+
+// Logoff 账号注销：将用户状态置为 0（注销/锁定）
+func Logoff(c *gin.Context, userID int64) error {
+	if userID <= 0 {
+		return fmt.Errorf("用户不存在")
+	}
+
+	var user models.McUser
+	if err := global.DB.Model(models.McUser{}).Where("id = ?", userID).First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fmt.Errorf("用户不存在")
+		}
+		return err
+	}
+	if user.Status == 0 {
+		return nil
+	}
+
+	update := map[string]interface{}{
+		"status": 0,
+		"uptime": utils.GetUnix(),
+	}
+	return global.DB.Model(models.McUser{}).Where("id = ?", userID).Updates(update).Error
 }

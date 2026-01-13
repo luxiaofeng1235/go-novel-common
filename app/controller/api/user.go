@@ -81,8 +81,22 @@ func (user *User) Login(c *gin.Context) {
 
 // Logoff 账号注销
 func (user *User) Logoff(c *gin.Context) {
-	info := gin.H{"token": "1111111111"}
-	utils.SuccessEncrypt(c, info, "ok")
+	userIDVal, ok := c.Get("user_id")
+	if !ok {
+		utils.FailEncrypt(c, nil, "缺少token")
+		return
+	}
+	userID, ok := userIDVal.(int64)
+	if !ok || userID <= 0 {
+		utils.FailEncrypt(c, nil, "token无效")
+		return
+	}
+
+	if err := user_service.Logoff(c, userID); err != nil {
+		utils.FailEncrypt(c, err, "")
+		return
+	}
+	utils.SuccessEncrypt(c, gin.H{}, "ok")
 }
 
 // Info 根据 token 获取当前用户信息（返回除密码外的 mc_user 字段）
