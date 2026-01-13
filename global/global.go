@@ -8,6 +8,7 @@ import (
 	"github.com/oschwald/geoip2-golang"
 	go_keylock "github.com/sjy3/go-keylock"
 	"github.com/thedevsaddam/gojsonq/v2"
+	"go-novel/pkg/ws"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -42,6 +43,7 @@ var (
 	GeoCityReader *geoip2.Reader
 	GeoAsnReader  *geoip2.Reader
 	Ws            *melody.Melody
+	WsHub         *ws.Hub
 	Gojsonq       *gojsonq.JSONQ
 	Bigcache      *bigcache.BigCache
 )
