@@ -17,13 +17,12 @@ import (
 	"gorm.io/gorm"
 )
 
-func GetUserInfoByUsername(username string) (*models.McUser, error) {
+func GetUserInfoByUsername(username string) (user *models.McUser, error error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, fmt.Errorf("用户不存在")
 	}
 
-	var user models.McUser
 	err := global.DB.Model(models.McUser{}).Where("username = ?", username).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -32,15 +31,13 @@ func GetUserInfoByUsername(username string) (*models.McUser, error) {
 		return nil, err
 	}
 	user.Passwd = ""
-	return &user, nil
+	return user, nil
 }
 
-func GetUserInfoByUserID(userID int64) (*models.McUser, error) {
+func GetUserInfoByUserID(userID int64) (user *models.McUser, error error) {
 	if userID <= 0 {
 		return nil, fmt.Errorf("用户不存在")
 	}
-
-	var user models.McUser
 	err := global.DB.Model(models.McUser{}).Where("id = ?", userID).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -49,5 +46,5 @@ func GetUserInfoByUserID(userID int64) (*models.McUser, error) {
 		return nil, err
 	}
 	user.Passwd = ""
-	return &user, nil
+	return user, nil
 }
