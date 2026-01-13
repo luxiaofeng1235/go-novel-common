@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	// 关键超时/限制：用于保活与断链检测（ping/pong）、避免超大消息占用内存。
 	defaultWriteWait      = 10 * time.Second
 	defaultPongWait       = 60 * time.Second
 	defaultPingPeriod     = (defaultPongWait * 9) / 10
@@ -21,12 +22,14 @@ const (
 )
 
 type Hub struct {
+	// Hub 主循环（Run）是单 goroutine：集中处理状态变更，避免 map 并发读写。
 	register     chan *Client
 	unregister   chan *Client
 	broadcastAll chan []byte
 	chat         chan chatRequest
 	dm           chan dmRequest
 
+	// clients：所有在线连接（包含未登录连接）；users：按 userID 归档（同账号多端在线）。
 	clients map[*Client]struct{}
 	users   map[int64]map[*Client]struct{}
 }
@@ -84,13 +87,14 @@ func (h *Hub) Broadcast(msg []byte) {
 	select {
 	case h.broadcastAll <- msg:
 	default:
-		// 队列满了就丢弃，避免阻塞业务
+		// 队列满则丢弃，避免阻塞调用方。
 	}
 }
 
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
+	hub  *Hub
+	conn *websocket.Conn
+	// send：Hub -> Client 的写队列；writePump 负责真正写入 WebSocket。
 	send     chan []byte
 	UserID   int64
 	Username string
@@ -120,6 +124,7 @@ func (c *Client) readPump() {
 		c.hub.unregister <- c
 	}()
 
+	// 读侧：限制消息大小 + 读超时；收到 pong 时续期 deadline。
 	c.conn.SetReadLimit(defaultMaxMessageSize)
 	_ = c.conn.SetReadDeadline(time.Now().Add(defaultPongWait))
 	c.conn.SetPongHandler(func(string) error {
@@ -136,6 +141,7 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) writePump() {
+	// 写侧：发送业务消息 + 定时 ping 保活（触发客户端返回 pong）。
 	ticker := time.NewTicker(defaultPingPeriod)
 	defer func() {
 		ticker.Stop()
