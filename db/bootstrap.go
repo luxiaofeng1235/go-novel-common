@@ -8,12 +8,14 @@
 package db
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"go-novel/config"
 	"go-novel/routers/api_routes"
 	"go-novel/routers/source_routes"
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -37,7 +39,11 @@ func StartAdminServer() {
 	if sourcePort == "" {
 		sourcePort = "8007"
 	}
-	go source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort))
+	go func() {
+		if err := source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort)); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("source 静态服务启动失败：%v", err)
+		}
+	}()
 }
 
 // StartApiServer 启动 API 服务（脚手架最小启动链路）
@@ -85,7 +91,11 @@ func StartApiServer() {
 	InitRedis(redisAddr, redisPasswd, redisDB)
 
 	// 静态资源服务依赖上传落盘目录（不依赖 DB），但启动顺序上放在 MySQL/Redis 成功之后
-	go source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort))
+	go func() {
+		if err := source_routes.InitSourceRoutes(fmt.Sprintf("%s:%s", sourceHost, sourcePort)); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("source 静态服务启动失败：%v", err)
+		}
+	}()
 
 	InitZapLog()
 	InitWs()

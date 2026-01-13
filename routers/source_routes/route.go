@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-func InitSourceRoutes(addr string) {
+func InitSourceRoutes(addr string) error {
 	if viper.GetBool("source.debug") || viper.GetBool("server.debug") {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -41,11 +41,12 @@ func InitSourceRoutes(addr string) {
 	// 强制使用 IPv4 监听，避免 Windows 侧仅出现 [::1] 导致 127.0.0.1 无法访问
 	ln, err := net.Listen("tcp4", s.Addr)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if err := s.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 func getHttpString(addr string) string {
