@@ -11,7 +11,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go-novel/config"
 	"go-novel/routers/api_routes"
 	"go-novel/routers/source_routes"
 	"log"
@@ -25,7 +24,6 @@ import (
 func StartAdminServer() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	_ = config.GetString("server.env")
 	if strings.TrimSpace(viper.GetString("jwt.secret")) == "" {
 		log.Fatal("缺少 jwt.secret：请在 config.yml 中设置 jwt.secret（用于签发/校验登录 token）")
 	}
@@ -50,8 +48,6 @@ func StartAdminServer() {
 func StartApiServer() {
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
 
-	// 触发配置加载（config 包 init 会读取根目录 config.yml）
-	_ = config.GetString("server.env")
 	if strings.TrimSpace(viper.GetString("jwt.secret")) == "" {
 		log.Fatal("缺少 jwt.secret：请在 config.yml 中设置 jwt.secret（用于签发/校验登录 token）")
 	}

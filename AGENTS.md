@@ -13,6 +13,7 @@ _仓库指南_
 - `routers/`：Gin 路由注册与分组（`routers/*_routes/*_route.go`）。
 - `db/`：DB/日志/缓存/NSQ/WS 等初始化与启动编排（见 `db/bootstrap.go`）。
 - `config/`：基于 Viper 的配置加载；默认在仓库根目录读取 `config.yml`（示例见 `config.yml.dev`）。
+- 环境（`server.env`）：当前脚手架不做 `local/dev/prod` 分支逻辑，尽量避免“按环境写代码”；如需差异化请通过不同的 `config.yml` 管理。
 - `public/`：静态资源与 Casbin 配置（`public/casbin_conf/...`）。
 - `gofound-1.4.1/`：内嵌组件（自带代码/测试）；除非必要，避免改动。
 

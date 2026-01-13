@@ -11,7 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/spf13/viper"
-	"go-novel/config"
+	_ "go-novel/config"
 	"go-novel/db"
 	"go-novel/routers/source_routes"
 	"log"
@@ -19,7 +19,6 @@ import (
 
 func main() {
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
-	_ = config.GetString("server.env")
 
 	var host, port string
 	flag.StringVar(&host, "host", viper.GetString("source.host"), "source listen host")

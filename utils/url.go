@@ -9,7 +9,6 @@ package utils
 
 import (
 	"fmt"
-	"go-novel/config"
 	"go-novel/global"
 	"io/ioutil"
 	"log"
@@ -148,12 +147,7 @@ func ParseLocalUrl(path string) (newfile string) {
 	if path == "" {
 		return
 	}
-	env := config.GetString("server.env")
-	//优先判断路径是否为本地，如果非本地直接返回，本地才进行逻辑判断
-	if env != "local" {
-		return path
-	}
-	// 脚手架最小实现：不依赖数据库配置表，直接返回传入路径
+	// 脚手架最小实现：不区分 env，直接返回传入路径
 	return path
 }
 

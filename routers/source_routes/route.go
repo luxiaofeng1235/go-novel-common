@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"go-novel/config"
 	"log"
 	"net"
 	"net/http"
@@ -65,9 +64,6 @@ func getHttpString(addr string) string {
 }
 
 func sourceRouter(r *gin.Engine) *gin.Engine {
-	// 触发配置加载（config 包 init 会读取根目录 config.yml）
-	_ = config.GetString("server.env")
-
 	// 按目录存在性挂载，避免误导（目录不存在时 gin.Static 也会挂载，但访问 404）
 	mountStatic(r, "/public", "./public")
 	mountStatic(r, "/resource", "./public/resource")

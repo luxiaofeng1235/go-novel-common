@@ -4,17 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/alexeyco/goozzle"
-	"github.com/gocolly/colly/v2"
 	"go-novel/global"
-	"golang.org/x/net/html/charset"
-	"golang.org/x/net/proxy"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/alexeyco/goozzle"
+	"github.com/gocolly/colly/v2"
+	"golang.org/x/net/html/charset"
+	"golang.org/x/net/proxy"
 )
 
 // Http Get请求基础函数, 通过封装Go语言Http请求, 支持火币网REST API的HTTP Get请求
@@ -53,9 +54,9 @@ func HttpGetRequest(strUrl string, mapParams map[string]string) string {
 	return string(body)
 }
 
-// GetBaiduResponse 兼容旧代码的“GET 请求并忽略结果”工具函数（用于上报等场景）。
+// GetContextResponse 兼容旧代码的“GET 请求并忽略结果”工具函数（用于上报等场景）。
 // 注意：脚手架默认不依赖该返回值，失败时返回空字符串。
-func GetBaiduResponse(strUrl string) string {
+func GetContextResponse(strUrl string) string {
 	strUrl = strings.TrimSpace(strUrl)
 	if strUrl == "" {
 		return ""
