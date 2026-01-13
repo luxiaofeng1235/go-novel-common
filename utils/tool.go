@@ -14,6 +14,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-novel/app/models"
+	"go-novel/global"
+	"io/ioutil"
+	"log"
+	"math"
+	"math/rand"
+	"net"
+	"net/http"
+	"net/mail"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
 	"github.com/ant-libs-go/ip_parser"
 	"github.com/axgle/mahonia"
 	"github.com/gin-contrib/sessions"
@@ -25,24 +43,6 @@ import (
 	"github.com/oschwald/geoip2-golang"
 	uuid "github.com/satori/go.uuid"
 	"github.com/tidwall/gjson"
-	"go-novel/app/models"
-	"go-novel/global"
-	"io/ioutil"
-	"log"
-	"math"
-	"math/rand"
-	"net"
-	"net/http"
-	"net/mail"
-	"net/url"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
 )
 
 func GetRandomString(length int) string {
@@ -732,60 +732,6 @@ func GetRequestHeaderByName(c *gin.Context, name string) (mark string) {
 		}
 	}
 	return mark
-}
-
-// 异步加载对应的数据信息
-func AsyncXiaomoReport(c *gin.Context, versionInfo *models.McAppVersion, package_name string, mark string, referer string) {
-	//获取关联的渠道信息
-	uuid := GetRequestHeaderByName(c, "Uuid")
-	log.Printf("获取到的当前用户的设备ID = %s\n", uuid)
-	//上报数据请求
-	SendDeviceReport(c, versionInfo, package_name, mark, referer)
-}
-
-// 上报接口回调信息
-func SendDeviceReport(c *gin.Context, version *models.McAppVersion, package_name string, mark string, referer string) {
-	values := url.Values{}
-	ip := RemoteIp(c)                                   //获取客户端IP
-	url := "https://dreport.szzntech.com/admt/op"       //响应参数
-	uuid := GetRequestHeaderByName(c, "Uuid")           //渠道号
-	model := GetRequestHeaderByName(c, "Model")         //机型
-	brand := GetRequestHeaderByName(c, "Brand")         //品牌
-	client_ua := GetRequestHeaderByName(c, "Ua")        //获取客户端的ua
-	androidid := GetRequestHeaderByName(c, "Androidid") //android信息
-	imei := GetRequestHeaderByName(c, "Imei")           //imei信息
-	oaid := GetRequestHeaderByName(c, "oaid")           //客户端的oaid
-	channel := "xiaomi"                                 //默认的渠道类型
-	subchannel := "APP_HLGYW_XM_1"                      //默认的子渠道类型
-	key := "APP_HLGYW_XM_1_001"
-	etype := "1001"
-	// 添加键值对
-	values.Add("pid", package_name)                          //app包名
-	values.Add("key", key)                                   //区分的唯一标识
-	values.Add("etype", etype)                               //etype 接口传入 1001 表示快应用dp进入 1002 表示非dp H5 页面 1 点击 2 展示
-	values.Add("channel", channel)                           //渠道
-	values.Add("subchannel", subchannel)                     //子渠道
-	values.Add("uuid", uuid)                                 //用户的设备id
-	values.Add("progress", strconv.FormatInt(GetUnix(), 10)) //系统时间
-	values.Add("model", model)                               //机型
-	values.Add("brand", brand)                               //品牌
-	values.Add("os_version", "10")                           //系统版本，客户端无法获取给人一个默认就行
-	values.Add("app_version", version.Version)               //产品版本,跟随业务走
-	values.Add("referer", referer)                           //上报事件：app首次冷启动时上报一次，后续启动不上报 ：APP_ACTIVE_NEW |  app每次冷启动时上报一次 ：APP_ACTIVE
-	values.Add("ip", ip)                                     //ip地址
-	values.Add("client_ip", ip)                              //客户端ip
-	values.Add("client_ua", client_ua)                       //客户端的UA1
-	values.Add("ua", client_ua)                              //客户端的UA2
-	values.Add("androidid", androidid)                       //安卓的ID
-	values.Add("imei", imei)                                 //imei信息
-	values.Add("oaid", oaid)                                 //传客户端的oaid
-	// 将 values 转换为查询字符串
-	queryString := values.Encode()
-	log.Println(queryString)
-	//生成异步回调的上报地址信息
-	apiurl := fmt.Sprintf("%v?%v", url, queryString)
-	log.Printf("url = %v\n", apiurl)
-	GetBaiduResponse(apiurl) //通过GET来发送响应地址请求
 }
 
 func GetGeoLite2CityByIp(ip string) (cityEnName, cityZhName, postal string) {
