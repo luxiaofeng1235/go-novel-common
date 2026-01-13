@@ -96,5 +96,8 @@ func (user *User) Info(c *gin.Context) {
 		utils.FailEncrypt(c, err, "")
 		return
 	}
-	utils.SuccessEncrypt(c, gin.H{"user": userInfo}, "ok")
+	info := gin.H{
+		"user": userInfo,
+	}
+	utils.SuccessEncrypt(c, info, "ok")
 }
