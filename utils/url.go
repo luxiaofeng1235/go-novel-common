@@ -9,8 +9,6 @@ package utils
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 	"go-novel/config"
 	"go-novel/global"
 	"io/ioutil"
@@ -20,6 +18,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // 获取Scheme  http 或https
@@ -149,7 +150,7 @@ func ParseLocalUrl(path string) (newfile string) {
 	}
 	env := config.GetString("server.env")
 	//优先判断路径是否为本地，如果非本地直接返回，本地才进行逻辑判断
-	if env != Local {
+	if env != "local" {
 		return path
 	}
 	// 脚手架最小实现：不依赖数据库配置表，直接返回传入路径
@@ -284,7 +285,7 @@ func GetReplaceBaiduCallbak(callback_url, atype string, avalue int) (str string)
 }
 
 // 获取百度请求的接口信息
-func GetBaiduResponse(url string) (str string) {
+func GetHttpResponse(url string) (str string) {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error making GET request:", err)

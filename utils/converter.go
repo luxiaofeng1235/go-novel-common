@@ -54,7 +54,7 @@ func AutoModel() {
 		dbName = strings.TrimSpace(config.GetString("mysql.name"))
 	}
 	if dbName == "" {
-		dbName = DbName
+		dbName = "novel"
 	}
 
 	mysqlUser := strings.TrimSpace(config.GetString("mysql.user"))

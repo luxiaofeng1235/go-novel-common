@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"go-novel/config"
 	"go-novel/global"
-	"go-novel/utils"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -22,6 +21,8 @@ import (
 	"strings"
 	"time"
 )
+
+const defaultMysqlDatabaseName = "novel"
 
 func GetDB() (mysqlAddress, dbName, mysqlUser, mysqlPasswd string) {
 	mysqlAddress = strings.TrimSpace(config.GetString("mysql.address"))
@@ -49,7 +50,7 @@ func GetDB() (mysqlAddress, dbName, mysqlUser, mysqlPasswd string) {
 		dbName = strings.TrimSpace(config.GetString("mysql.name"))
 	}
 	if dbName == "" {
-		dbName = utils.DbName
+		dbName = defaultMysqlDatabaseName
 	}
 
 	mysqlUser = strings.TrimSpace(config.GetString("mysql.user"))
