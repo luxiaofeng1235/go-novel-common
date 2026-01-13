@@ -56,10 +56,18 @@ func GetDownUrl() string {
 }
 
 func GetApiUrl() string {
+	// api.apiUrl 已废弃：统一使用 server.apiUrl
+	if val := strings.TrimSpace(viper.GetString("server.apiUrl")); val != "" {
+		return val
+	}
 	return viper.GetString("api.apiUrl")
 }
 
 func GetApiEncrypt() bool {
+	// api.encrypt 已废弃：统一使用 server.encrypt
+	if viper.IsSet("server.encrypt") {
+		return viper.GetBool("server.encrypt")
+	}
 	return viper.GetBool("api.encrypt")
 }
 

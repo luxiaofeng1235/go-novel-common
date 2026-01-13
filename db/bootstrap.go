@@ -51,15 +51,21 @@ func StartApiServer() {
 	}
 
 	var apiHost, apiPort string
-	flag.StringVar(&apiHost, "host", viper.GetString("api.host"), "api listen host")
-	flag.StringVar(&apiPort, "port", viper.GetString("api.port"), "api listen port")
+	// API 监听地址：统一从 server.host/server.port 读取（api.host/api.port 已废弃）
+	defaultHost := strings.TrimSpace(viper.GetString("server.host"))
+	defaultPort := viper.GetInt("server.port")
+	if defaultHost == "" || defaultPort == 0 {
+		log.Fatal("缺少 server.host/server.port：请在 config.yml 的 server 节点配置 API 监听地址（api.host/api.port 已废弃）")
+	}
+	flag.StringVar(&apiHost, "host", defaultHost, "api listen host")
+	flag.StringVar(&apiPort, "port", fmt.Sprintf("%d", defaultPort), "api listen port")
 	flag.Parse()
 
 	if apiHost == "" {
-		apiHost = "0.0.0.0"
+		log.Fatal("host 不能为空：请通过 -host 或 config.yml 的 server.host 配置")
 	}
 	if apiPort == "" {
-		apiPort = "8006"
+		log.Fatal("port 不能为空：请通过 -port 或 config.yml 的 server.port 配置")
 	}
 
 	sourceHost := viper.GetString("source.host")

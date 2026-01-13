@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -51,15 +52,13 @@ func getHttpString(addr string) string {
 	if addr != "" {
 		return addr
 	}
-	host := viper.GetString("api.host")
-	port := viper.GetString("api.port")
-	if host == "" {
-		host = "0.0.0.0"
+	host := strings.TrimSpace(viper.GetString("server.host"))
+	port := viper.GetInt("server.port")
+	if host == "" || port == 0 {
+		// 兜底：按脚手架约定必须在 server 配置监听地址，这里避免默默用默认值造成联调混乱
+		log.Fatal("缺少 server.host/server.port：请在 config.yml 的 server 节点配置 API 监听地址")
 	}
-	if port == "" {
-		port = "8005"
-	}
-	return fmt.Sprintf("%s:%s", host, port)
+	return fmt.Sprintf("%s:%d", host, port)
 }
 
 // api路由

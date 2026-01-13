@@ -1,3 +1,10 @@
+/*
+ * @Descripttion: 配置加载（读取根目录 config.yml，并可选合并 config/upload.yml）
+ * @Author: red
+ * @Date: 2026-01-13 09:20:00
+ * @LastEditors: red
+ * @LastEditTime: 2026-01-13 09:20:00
+ */
 package config
 
 import (
