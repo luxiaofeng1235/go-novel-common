@@ -18,10 +18,11 @@ func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 	userApi := new(api.User)
 	user := r.Group("/user").Use(middleware.ApiReqDecrypt())
 	{
-		user.POST("/guest", userApi.Guest)                   //访客注册
-		user.POST("/register", userApi.Register)             //注册
-		user.POST("/login", userApi.Login)                   //登录
-		user.GET("/info", middleware.ApiJwt(), userApi.Info) //获取用户信息
+		user.POST("/guest", userApi.Guest)                    //访客注册
+		user.POST("/register", userApi.Register)              //注册
+		user.POST("/login", userApi.Login)                    //登录
+		user.POST("/edit", middleware.ApiJwt(), userApi.Edit) //编辑用户信息
+		user.GET("/info", middleware.ApiJwt(), userApi.Info)  //获取用户信息
 
 	}
 	return r

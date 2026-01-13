@@ -101,3 +101,31 @@ func (user *User) Info(c *gin.Context) {
 	}
 	utils.SuccessEncrypt(c, info, "ok")
 }
+
+// Edit 编辑用户信息（需登录）
+func (user *User) Edit(c *gin.Context) {
+	var req models.EditUserReq
+	if err := c.ShouldBind(&req); err != nil {
+		utils.FailEncrypt(c, err, "")
+		return
+	}
+
+	userIDVal, ok := c.Get("user_id")
+	if !ok {
+		utils.FailEncrypt(c, nil, "缺少token")
+		return
+	}
+	userID, ok := userIDVal.(int64)
+	if !ok || userID <= 0 {
+		utils.FailEncrypt(c, nil, "token无效")
+		return
+	}
+	req.UserId = userID
+
+	updatedUser, err := user_service.EditUser(c, &req)
+	if err != nil {
+		utils.FailEncrypt(c, err, "")
+		return
+	}
+	utils.SuccessEncrypt(c, gin.H{"user": updatedUser}, "ok")
+}
