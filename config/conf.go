@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"github.com/spf13/viper"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -19,6 +21,15 @@ func initConfig() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		log.Fatalln(err)
+	}
+
+	// 业务配置拆分：如存在 config/upload.yml，则合并进主配置（不影响线上只用 config.yml 的场景）
+	uploadConfigPath := filepath.Join(dir, "config", "upload.yml")
+	if b, err := os.ReadFile(uploadConfigPath); err == nil {
+		// viper.MergeConfig 使用当前的 config type 解析
+		if err := viper.MergeConfig(bytes.NewReader(b)); err != nil {
+			log.Fatalln(err)
+		}
 	}
 }
 

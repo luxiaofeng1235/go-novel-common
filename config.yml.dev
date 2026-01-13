@@ -2,8 +2,8 @@ server:
   env: prod
   debug: true
   port: 8006
-  adminUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
-  downUrl : http://127.0.0.1 #对外提供给市场和业务专员的域名
+  adminUrl: http://127.0.0.1 #兼容字段（建议使用 admin.adminUrl）
+  downUrl: http://127.0.0.1 #对外提供给市场和业务专员的域名
 
 admin:
   host: 0.0.0.0
@@ -14,24 +14,24 @@ api:
   encrypt: false
   host: 0.0.0.0
   port: 8006
-  apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
+  apiUrl: http://127.0.0.1 #API 对外域名（用于拼接文件 URL 等）
 
 source:
   host: 0.0.0.0
   port: 8007
-  apiUrl: http://127.0.0.1 #用户获取后台上传的图片资源路径
+  apiUrl: http://127.0.0.1 #静态服务对外域名（拼接上传文件 URL）
   # 可选：显式指定静态资源访问域名（优先级最高），如 http://127.0.0.1:8007
   publicBaseUrl: ""
 
-#casbin配置
+# casbin 配置
 casbin:
   modelFile: ./public/casbin_conf/rbac_model.conf
   policyFile: ./public/casbin_conf/rbac_policy.csv
 
 adminInfo:
-  notCheckAuthAdminIds: [1]  #无需验证后台权限的用户id
-  pageNum: 10  #后台列表分页长度
-  dataDir:  "./public/data"  #数据目录
+  notCheckAuthAdminIds: [1] #无需验证后台权限的用户id
+  pageNum: 10 #后台列表分页长度
+  dataDir: "./public/data" #数据目录
 
 jwt:
   secret: 6fdfff3591fbea8e84a936d8ec62157f
@@ -62,19 +62,6 @@ redis:
   port: 6379
   password: ""
   db: 0
-
-# 本地上传配置（由 /api/common/upload 使用；文件实际保存在 baseDir，对外通过 source 静态服务访问）
-upload:
-  # 本地存储根目录（建议在 public 下，便于 source 服务直接暴露）
-  baseDir: "./public/upload"
-  # 对外访问的 URL 前缀（应与 routers/source_routes 挂载一致）
-  publicPathPrefix: "/public/upload"
-  # 最大上传大小（MB，默认 50）
-  maxSizeMB: 50
-  # 允许上传的文件后缀（空表示不限制；建议只允许图片/视频）
-  allowedExts: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".m4v", ".webm"]
-  # 允许的 Content-Type 前缀（空表示不限制）
-  allowedMimePrefixes: ["image/", "video/"]
 
 logs:
   # 日志等级(-1:Debug, 0:Info, 1:Warn, 2:Error, 3:DPanic, 4:Panic, 5:Fatal, -1<=level<=5, 参照zap.level源码)
