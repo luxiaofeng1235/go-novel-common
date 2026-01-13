@@ -10,7 +10,6 @@ package api
 import (
 	"go-novel/app/models"
 	"go-novel/app/service/api/user_service"
-	"go-novel/middleware"
 	"go-novel/utils"
 
 	"github.com/gin-gonic/gin"
@@ -82,9 +81,14 @@ func (user *User) Login(c *gin.Context) {
 
 // Info 根据 token 获取当前用户信息（返回除密码外的 mc_user 字段）
 func (user *User) Info(c *gin.Context) {
-	userID := middleware.GetAuthUserID(c)
-	if userID <= 0 {
+	userIDVal, ok := c.Get("user_id")
+	if !ok {
 		utils.FailEncrypt(c, nil, "缺少token")
+		return
+	}
+	userID, ok := userIDVal.(int64)
+	if !ok || userID <= 0 {
+		utils.FailEncrypt(c, nil, "token无效")
 		return
 	}
 	userInfo, err := user_service.GetUserInfoByUserID(userID)

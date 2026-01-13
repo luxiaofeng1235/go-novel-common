@@ -15,8 +15,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const ctxKeyAuthUsername = "authUsername"
-const ctxKeyAuthUserID = "authUserID"
+// 兼容原项目约定：在 Context 中注入 user_id，供 controller 层直接 c.Get("user_id") 获取
+const ctxKeyUserID = "user_id"
+const ctxKeyUsername = "username"
 
 // AuthUser 必须携带有效 token（支持 Authorization: Bearer xxx 或 Token: xxx）
 func AuthUser() gin.HandlerFunc {
@@ -39,39 +40,27 @@ func AuthUser() gin.HandlerFunc {
 			return
 		}
 
-		c.Set(ctxKeyAuthUsername, strings.TrimSpace(claims.Username))
-		c.Set(ctxKeyAuthUserID, claims.UserID)
+		c.Set(ctxKeyUsername, strings.TrimSpace(claims.Username))
+		c.Set(ctxKeyUserID, claims.UserID)
 		c.Next()
 	}
+}
+
+// ApiJwt 兼容原项目命名：API 侧 JWT 鉴权（注入 user_id）
+func ApiJwt() gin.HandlerFunc {
+	return AuthUser()
 }
 
 func GetAuthUsername(c *gin.Context) string {
 	if c == nil {
 		return ""
 	}
-	if val, ok := c.Get(ctxKeyAuthUsername); ok {
+	if val, ok := c.Get(ctxKeyUsername); ok {
 		if s, ok := val.(string); ok {
 			return strings.TrimSpace(s)
 		}
 	}
 	return ""
-}
-
-func GetAuthUserID(c *gin.Context) int64 {
-	if c == nil {
-		return 0
-	}
-	if val, ok := c.Get(ctxKeyAuthUserID); ok {
-		switch v := val.(type) {
-		case int64:
-			return v
-		case int:
-			return int64(v)
-		case float64:
-			return int64(v)
-		}
-	}
-	return 0
 }
 
 func extractToken(c *gin.Context) string {
