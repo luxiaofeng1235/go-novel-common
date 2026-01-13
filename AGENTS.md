@@ -22,6 +22,7 @@ _仓库指南_
 - 路由鉴权约定：若某个模块/一组接口都需要登录，优先使用 `r.Group(...).Use(middleware.ApiJwt())` 统一鉴权；若只有少数接口需要登录，则在单条路由上添加 `middleware.ApiJwt()`（例如 `user.POST("/follow", middleware.ApiJwt(), userApi.Follow)`）。
 - 控制器（Controller）：只做参数绑定、轻量校验、调用 service、统一返回；放在 `app/controller/<api|admin>/`。推荐统一使用 `utils.SuccessEncrypt()` / `utils.FailEncrypt()` 输出 JSON（保持前端兼容）。
 - 服务（Service）：承载业务逻辑与数据访问；放在 `app/service/<api|admin|common>/...`。DB 统一通过 `global.DB` 访问，避免在 controller 内直接写 SQL/GORM；尽量不要在 service 里直接写 HTTP 响应。
+- Service 查询单条（约定）：按 `userID` 等主键查询时，优先使用 `First` 并显式处理“未找到”，返回时清空敏感字段（如 `Passwd`），例如：`func GetUserInfoByUserID(userID int64) (user *models.McUser, err error) { ... }`。
 - 模型（Model）：GORM 模型与请求结构体集中在 `app/models/`（如 `app/models/mc_user.go` 已包含 `LoginReq/RegisterReq/GuestLoginReq`）。新增表时：模型字段需有 `gorm:"column:..."`，并实现 `TableName()` 返回真实表名。
 - 强约束（必须遵守）：严禁在 `app/controller/...` 或 `app/models/...` 直接编写业务逻辑（包括：权限判断、状态机、落库/事务、复杂校验、跨表查询、第三方调用等）；所有业务处理必须“转发/下沉”到 `app/service/...` 统一实现与复用。
 - 依赖方向：`routers` → `app/controller` → `app/service` → `app/models`（单向依赖）；禁止反向引用（例如 models 引用 service/routers）。
