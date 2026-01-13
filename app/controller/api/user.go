@@ -79,6 +79,12 @@ func (user *User) Login(c *gin.Context) {
 	utils.SuccessEncrypt(c, res, "登陆成功~")
 }
 
+// Logoff 账号注销
+func (user *User) Logoff(c *gin.Context) {
+	info := gin.H{"token": "1111111111"}
+	utils.SuccessEncrypt(c, info, "ok")
+}
+
 // Info 根据 token 获取当前用户信息（返回除密码外的 mc_user 字段）
 func (user *User) Info(c *gin.Context) {
 	userIDVal, ok := c.Get("user_id")

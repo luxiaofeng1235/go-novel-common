@@ -23,6 +23,7 @@ func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 		user.POST("/login", userApi.Login)                    //登录
 		user.POST("/edit", middleware.ApiJwt(), userApi.Edit) //编辑用户信息
 		user.GET("/info", middleware.ApiJwt(), userApi.Info)  //获取用户信息
+		user.POST("/logoff", userApi.Logoff)                  //账号注销
 
 	}
 	return r
