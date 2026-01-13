@@ -53,6 +53,31 @@ func HttpGetRequest(strUrl string, mapParams map[string]string) string {
 	return string(body)
 }
 
+// GetBaiduResponse 兼容旧代码的“GET 请求并忽略结果”工具函数（用于上报等场景）。
+// 注意：脚手架默认不依赖该返回值，失败时返回空字符串。
+func GetBaiduResponse(strUrl string) string {
+	strUrl = strings.TrimSpace(strUrl)
+	if strUrl == "" {
+		return ""
+	}
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+	request, err := http.NewRequest("GET", strUrl, nil)
+	if err != nil {
+		return ""
+	}
+	request.Header.Add("User-Agent", "Mozilla/5.0")
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
 // Http POST请求基础函数, 通过封装Go语言Http请求, 支持火币网REST API的HTTP POST请求
 // strUrl: 请求的URL
 // mapParams: map类型的请求参数
