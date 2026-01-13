@@ -19,6 +19,7 @@ require (
 	github.com/gocolly/colly/v2 v2.1.0
 	github.com/gohouse/converter v0.0.3
 	github.com/goroom/rand v1.1.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/ipipdotnet/ipdb-go v1.3.3
 	github.com/json-iterator/go v1.1.12
 	github.com/longbridgeapp/opencc v0.3.11
@@ -94,7 +95,6 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.1 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

@@ -52,6 +52,16 @@ _仓库指南_
 - 本仓库默认采用 IPv4 监听（`tcp4`）保证 Windows/WSL 直连可用；若你自行调整启动/监听逻辑，请确保至少监听到 `127.0.0.1:PORT`（或 `0.0.0.0:PORT`）以支持 IPv4 访问。
 - Windows 侧联调建议使用 `curl.exe`（PowerShell 的 `curl` 可能是别名）：`curl.exe -i http://127.0.0.1:8006/api/user/guest`
 
+## WebSocket（基础通信）
+
+- 路由：`GET /api/ws`（使用 `gorilla/websocket`，最小可用：广播/心跳/房间）。
+- 连接示例：`ws://127.0.0.1:18016/api/ws?token=<JWT>`（token 可选；传入时会解析并记录 `userId/username`，便于后续扩展鉴权/权限/房间等）。
+- 消息协议（JSON）：
+  - `{"type":"ping"}`：服务端回 `{"type":"pong","data":{"ts":<unix>}}`
+  - `{"type":"join","data":{"room":"lobby"}}`：加入房间（默认 `lobby`），回 `join_ok` 并在房间内广播 `join`
+  - `{"type":"chat","data":{"text":"hello"}}`：向当前房间广播聊天（返回 `chat`，带 `room/userId/username/ts`）
+- 心跳：服务端会定时发送 WS Ping frame，客户端正常回复 Pong 即可；协议层也支持 `ping/pong` 便于调试。
+
 ## 代码风格与命名约定
 
 - Go 代码统一使用 `gofmt`（标准 Go 格式；默认 tab 缩进）。如团队使用 `goimports` 可优先。
