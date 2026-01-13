@@ -8,15 +8,17 @@
 package api_routes
 
 import (
-	"github.com/gin-gonic/gin"
 	"go-novel/app/controller/api"
+
+	"github.com/gin-gonic/gin"
 )
 
 func initCommonRoutes(r *gin.RouterGroup) gin.IRoutes {
 	commonApi := new(api.Common)
 	common := r.Group("/common")
 	{
-		common.POST("/upload", commonApi.Upload)
+		common.GET("/ping", commonApi.Ping)      //存活探针
+		common.POST("/upload", commonApi.Upload) //上传
 	}
 	return r
 }

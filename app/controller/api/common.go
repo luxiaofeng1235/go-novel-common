@@ -10,7 +10,7 @@ package api
 import (
 	"go-novel/app/service/common/file_service"
 	"go-novel/utils"
-	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -18,30 +18,22 @@ import (
 
 type Common struct{}
 
+// Ping 存活探针（不依赖 DB/Redis）
+func (common *Common) Ping(c *gin.Context) {
+	utils.SuccessEncrypt(c, gin.H{
+		"ts":  time.Now().Unix(),
+		"env": viper.GetString("server.env"),
+	}, "pong")
+}
+
 // Upload 本地上传（无需登录、无需加密参数）
 // multipart/form-data:
 // - file: 文件/图片/视频
 // - dir: (可选) 相对目录，如 avatar、video/2026
 func (common *Common) Upload(c *gin.Context) {
-	maxSizeMB := viper.GetInt("upload.maxSizeMB")
-	if maxSizeMB <= 0 {
-		maxSizeMB = 50
-	}
-	maxBytes := int64(maxSizeMB) * 1024 * 1024
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
-
-	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		utils.FailEncrypt(c, err, "读取上传文件失败")
-		return
-	}
-	if maxBytes > 0 && fileHeader.Size > maxBytes {
-		utils.FailEncrypt(c, nil, "文件过大")
-		return
-	}
 	subDir := c.PostForm("dir")
 	//上传图片
-	res, err := file_service.LocalUpload(fileHeader, subDir)
+	res, err := file_service.LocalUpload(c, subDir)
 	if err != nil {
 		utils.FailEncrypt(c, err, "")
 		return

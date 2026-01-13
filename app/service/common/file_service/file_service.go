@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"go-novel/utils"
 	"mime/multipart"
+	"net/http"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
 
@@ -30,14 +32,27 @@ type UploadResult struct {
 
 // LocalUpload 本地上传：把文件保存到 upload.baseDir 下，并返回可被 source 静态服务访问的 URL
 // - subDir：相对目录（可为空），会被安全清洗，禁止 .. 等路径穿越
-func LocalUpload(fileHeader *multipart.FileHeader, subDir string) (*UploadResult, error) {
+func LocalUpload(c *gin.Context, subDir string) (*UploadResult, error) {
+	maxSizeMB := viper.GetInt("upload.maxSizeMB")
+	if maxSizeMB <= 0 {
+		maxSizeMB = 50
+	}
+	maxBytes := int64(maxSizeMB) * 1024 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		return nil, fmt.Errorf("读取上传文件失败")
+	}
+	if maxBytes > 0 && fileHeader.Size > maxBytes {
+		return nil, fmt.Errorf("文件过大")
+	}
 	if fileHeader == nil {
 		return nil, fmt.Errorf("上传文件不能为空")
 	}
 	if err := validateUploadFile(fileHeader); err != nil {
 		return nil, err
 	}
-
 	baseDir := viper.GetString("upload.baseDir")
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = "./public/upload"
