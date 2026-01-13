@@ -8,24 +8,20 @@
 package api_routes
 
 import (
-	"github.com/gin-gonic/gin"
 	"go-novel/app/controller/api"
 	"go-novel/middleware"
+
+	"github.com/gin-gonic/gin"
 )
 
 func initUserRoutes(r *gin.RouterGroup) gin.IRoutes {
 	userApi := new(api.User)
 	user := r.Group("/user").Use(middleware.ApiReqDecrypt())
 	{
-		user.POST("/guest", userApi.Guest)
-		user.POST("/register", userApi.Register)
-		user.POST("/login", userApi.Login)
-		user.GET("/info", middleware.AuthUser(), userApi.Info)
-
-		//get请求
-		user.GET("/guest", userApi.Guest)
-		user.GET("/register", userApi.Register)
-		user.GET("/login", userApi.Login)
+		user.POST("/guest", userApi.Guest)                     //访客注册
+		user.POST("/register", userApi.Register)               //注册
+		user.POST("/login", userApi.Login)                     //登录
+		user.GET("/info", middleware.AuthUser(), userApi.Info) //获取用户信息
 
 	}
 	return r
