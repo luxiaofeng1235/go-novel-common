@@ -54,13 +54,282 @@ _仓库指南_
 - 本仓库默认采用 IPv4 监听（`tcp4`）保证 Windows/WSL 直连可用；若你自行调整启动/监听逻辑，请确保至少监听到 `127.0.0.1:PORT`（或 `0.0.0.0:PORT`）以支持 IPv4 访问。
 - Windows 侧联调建议使用 `curl.exe`（PowerShell 的 `curl` 可能是别名）：`curl.exe -i http://127.0.0.1:8006/api/user/guest`
 
+## 数据库与缓存初始化详解
+
+### MySQL 连接配置（db/mysql.go）
+- 连接参数读取优先级：`mysql.address` > `mysql.host:mysql.port`（默认 `127.0.0.1:3306`）
+- 数据库名优先级：`mysql.database` > `mysql.dbname` > `mysql.name`（默认 `novel`）
+- 连接池配置（可在 `config.yml` 的 `mysql.pool` 节点配置）：
+  - `MaxIdleConns`：默认 25
+  - `MaxOpenConns`：默认 100
+  - `ConnMaxLifetime`：默认 600 秒
+  - `ConnMaxIdleTime`：可选配置
+- GORM 配置：
+  - `TablePrefix: "mc_"`：所有表名自动加 `mc_` 前缀
+  - `SingularTable: true`：使用单数表名（如 `mc_user` 而非 `mc_users`）
+  - `Logger`：生产环境建议 `Silent`，开发环境可设为 `Info`
+
+### Redis 连接配置（db/redis.go）
+- 连接参数读取优先级：`redis.addr` > `redis.host:redis.port`（默认 `127.0.0.1:6379`）
+- 密码配置：`redis.password`（可选）
+- 数据库编号：`redis.db`（默认 0）
+- 连接实例存储在 `global.Redis`，全局访问
+
+### 日志系统（db/zaplog.go）
+- 日志目录：`./public/logs/{模块名}/`
+- 日志分类（按模块）：
+  - `global.Sqllog`：SQL 日志
+  - `global.Errlog`：错误日志
+  - `global.Paylog`：支付日志
+  - `global.Wslog`：WebSocket 日志
+  - `global.Collectlog`：采集日志
+  - 其他：`Zssqlog`、`Nsqlog`、`Updatelog`、`Requestlog` 等
+- 日志配置（`config.yml` 的 `logs` 节点）：
+  - `level`：日志级别（-1=Debug, 0=Info, 1=Warn, 2=Error）
+  - `max-size`：单文件最大大小（MB）
+  - `max-backups`：保留备份文件数量
+  - `max-age`：保留天数
+  - `compress`：是否压缩
+
+## JWT 认证详解
+
+### JWT 配置与实现（utils/jwt.go）
+- **密钥配置**：`config.yml` 的 `jwt.secret`（必配，不能为空）
+- **Token 有效期**：24 小时 × 90 = 2160 小时（约 90 天）
+- **Claims 结构**：
+  ```go
+  type Claims struct {
+    UserID    int64  // 用户 ID
+    Username  string // 用户名
+    Authority int    // 权限级别
+    jwt.StandardClaims
+  }
+  ```
+- **签发函数**：`utils.GenerateToken(userID, username, authority)`
+- **验证函数**：`utils.ParseToken(token)` - 防止 alg 混淆攻击（仅允许 HMAC 系列）
+- **刷新函数**：`utils.RefreshToken(tokenString)` - 保留原 userID/username，签发新 token
+
+### 密码加密机制（app/service/api/user_service/user_api.go）
+- **加密算法**：MD5 + 可配置盐值
+- **盐值配置**：`config.yml` 的 `auth.passwordSalt`（可选，为空则仅 MD5）
+- **加密函数**：`hashLoginPasswd(plain string)`
+  - 若配置了 `passwordSalt`，则：`MD5(plain + salt)`
+  - 若未配置，则：`MD5(plain)`
+- **密码比对**：登录时对输入密码执行相同加密，与数据库 `Passwd` 字段比对
+
+## 中间件详解
+
+### JWT 鉴权中间件（middleware/auth_user.go）
+- **函数名**：`middleware.ApiJwt()` 或 `middleware.AuthUser()`
+- **Token 提取**：
+  1. 优先从 `Authorization: Bearer <token>` 头提取
+  2. 兼容 `Authorization: <token>`（直接传 token）
+  3. 兼容历史 `Token: <token>` 头
+- **校验流程**：
+  1. 提取 token，为空则返回 403 "缺少token"
+  2. 调用 `utils.ParseToken()` 验证签名和过期时间
+  3. 校验 `claims.UserID > 0` 和 `claims.Username` 非空
+  4. 将 `user_id` 和 `username` 注入到 `gin.Context`
+  5. 校验失败时返回 403 "token无效" 并中止请求
+- **Controller 获取用户信息**：
+  ```go
+  userIDVal, ok := c.Get("user_id")
+  userID, ok := userIDVal.(int64)
+  ```
+
+### 请求解密中间件（middleware/api_req_decrypt.go）
+- **函数名**：`middleware.ApiReqDecrypt()`
+- **配置开关**：`config.yml` 的 `server.encrypt`（默认 false）
+- **解密流程**（当 `encrypt=true` 时）：
+  1. 读取 POST body 中的 `{data: <加密内容>}` 格式
+  2. 使用 AES-CFB 模式解密（密钥：`utils.ApiAesKey = "WB0nMZHXlxNndORe"`）
+  3. 将解密后的 JSON 重新绑定到 `Request.Body`
+- **响应加密**：`utils.SuccessEncrypt()` / `utils.FailEncrypt()` 根据同一开关决定是否加密响应
+
+### CORS 中间件（middleware/cors.go）
+- **函数名**：`middleware.Cors()`
+- **允许来源**：`Access-Control-Allow-Origin: *`（所有来源）
+- **允许请求头**：`Content-Type`、`Authorization`、`Token`、`X-Token`、`X-User-Id` 等
+- **允许方法**：`POST`、`GET`、`PUT`、`DELETE`、`OPTIONS`、`PATCH`
+- **预检请求**：OPTIONS 请求直接返回 204
+
+## 用户模型完整字段说明（app/models/mc_user.go）
+
+### McUser 结构体（表名：mc_user）
+| 字段名 | 类型 | JSON 标签 | 说明 |
+|--------|------|-----------|------|
+| Id | int64 | id | 用户 ID（主键） |
+| ParentId | int64 | parent_id | 上级用户 ID（推荐人） |
+| Username | string | username | 登录账号 |
+| Passwd | string | passwd | 密码（MD5+盐） |
+| Nickname | string | nickname | 昵称 |
+| Tel | string | tel | 手机号 |
+| Pic | string | pic | 头像 URL |
+| Email | string | email | 邮箱 |
+| Sex | int | sex | 性别（0-未知 1-男 2-女） |
+| Text | string | text | 个人简介 |
+| Referrer | string | referrer | 上级邀请码 |
+| Invitation | string | invitation | 本人邀请码（6 位随机） |
+| ParentLink | string | parent_link | 推荐链条（`,id1,id2,...`） |
+| Vip | int64 | vip | VIP 标记（0-否 1-是） |
+| Rmb | float64 | rmb | 账户余额（人民币） |
+| Cion | int64 | cion | 金币余额 |
+| Viptime | int64 | viptime | VIP 到期时间（Unix 时间戳） |
+| Status | int | status | 账户状态（0-锁定 1-正常） |
+| IsGuest | int | is_guest | 游客标记（1-是 0-否） |
+| Deviceid | string | deviceid | 游客匿名设备 ID |
+| Mark | string | mark | 渠道号 |
+| Package | string | package | 应用包名 |
+| Imei | string | imei | IMEI 设备号 |
+| Oaid | string | oaid | OAID 设备标识 |
+| LastLoginTime | int64 | last_login_time | 上次登录时间（Unix 时间戳） |
+| Ip | string | ip | 最后登录 IP |
+| RegistId | string | regist_id | 推送设备 ID（极光推送等） |
+| IsCheckinRemind | int | is_checkin_remind | 签到提醒开关（0-关闭 1-开启） |
+| LastRemindTime | int64 | last_remind_time | 最后签到提醒时间 |
+| ReportStatus | int | report_status | 上报状态 |
+| BookType | int | book_type | 书籍类型偏好 |
+| Addtime | int64 | addtime | 注册时间（Unix 时间戳） |
+| Uptime | int64 | uptime | 更新时间（Unix 时间戳） |
+
+### 请求结构体（同文件）
+- `LoginReq`：登录请求（支持 username/tel/email 三种方式）
+- `RegisterReq`：注册请求（username、passwd、nickname、referrer）
+- `GuestLoginReq`：游客登录请求（deviceid、referrer、sex）
+- `EditUserReq`：编辑用户信息请求（支持 tel/email/nickname/sex/pic/passwd/book_type）
+- `LogoffReq`：注销请求
+- `UserInfoReq`：查询用户信息请求
+
+## 文件上传服务详解
+
+### 上传接口规范（POST /api/common/upload）
+- **路由位置**：`routers/api_routes/common_route.go`
+- **Controller**：`app/controller/api/common.go:Upload()`
+- **Service**：`app/service/common/file_service/file_service.go:LocalUpload()`
+- **表单字段**：
+  - `file`：上传文件（必需，multipart/form-data）
+  - `dir`：相对子目录（可选，如 `avatar`、`book_cover`）
+
+### 上传响应格式
+```json
+{
+  "code": 0,
+  "data": {
+    "localPath": "/path/to/public/upload/avatar/xxx.jpg",
+    "publicPath": "/public/upload/avatar/xxx.jpg",
+    "url": "http://127.0.0.1:8007/public/upload/avatar/xxx.jpg",
+    "filename": "20260113_abc123.jpg",
+    "size": 102400,
+    "contentType": "image/jpeg"
+  },
+  "msg": "ok"
+}
+```
+
+### 安全校验机制
+1. **文件大小限制**：默认 50MB（可配 `upload.maxSizeMB`）
+2. **后缀白名单**：`upload.allowedExts`（如 `.jpg`、`.png`、`.gif`、`.mp4`）
+3. **MIME 类型白名单**：`upload.allowedMimePrefixes`（如 `image/`、`video/`）
+4. **路径安全**：禁止 `..`、绝对路径、特殊字符
+5. **随机文件名**：`{timestamp}_{random}.{ext}`，防止文件名冲突和路径遍历
+
+### 上传配置（config/upload.yml）
+```yaml
+upload:
+  baseDir: "./public/upload"           # 本地存储根目录
+  publicPathPrefix: "/public/upload"   # 公共访问路径前缀
+  maxSizeMB: 50                        # 最大文件大小（MB）
+  allowedExts:                         # 允许的文件后缀
+    - .jpg
+    - .jpeg
+    - .png
+    - .gif
+    - .webp
+    - .mp4
+    - .mp3
+    - .pdf
+  allowedMimePrefixes:                 # 允许的 MIME 前缀
+    - "image/"
+    - "video/"
+    - "audio/"
+    - "application/pdf"
+```
+
+## WebSocket 架构详解
+
+### Hub 中心架构（pkg/ws/hub.go）
+- **设计模式**：单 goroutine 主循环 + 多 goroutine 读写泵
+- **核心结构**：
+  ```go
+  type Hub struct {
+    register     chan *Client           // 客户端注册队列
+    unregister   chan *Client           // 客户端注销队列
+    broadcastAll chan []byte            // 全局广播队列
+    chat         chan chatRequest       // 群聊请求队列
+    dm           chan dmRequest         // 单聊请求队列
+
+    clients map[*Client]struct{}        // 所有连接（集合）
+    users   map[int64]map[*Client]struct{}  // 按 userID 归档（同账号多端）
+  }
+  ```
+- **Hub.Run() 主循环**：
+  - 单 goroutine 处理所有状态变更（注册/注销/广播/聊天）
+  - 避免 map 并发读写竞态
+  - 使用 `select` 多路复用 channel
+
+### 客户端生命周期（pkg/ws/client.go）
+1. **连接建立**（`ws.HandleRequest()`）：
+   - 升级 HTTP 连接为 WebSocket
+   - 解析 URL 参数中的 `token`（可选）
+   - 若有 token，验证并提取 `userId` 和 `username`
+   - 创建 `Client` 实例，并启动读写泵
+2. **读泵**（`client.readPump()`）：
+   - 单 goroutine 持续读取客户端消息
+   - 设置读超时（60 秒）和最大消息大小（64KB）
+   - 解析 JSON 消息，分发到不同处理函数（ping/chat/dm）
+3. **写泵**（`client.writePump()`）：
+   - 单 goroutine 持续发送消息给客户端
+   - 从 `client.send` channel 读取待发送消息
+   - 定时发送 Ping frame（54 秒间隔，= 60 * 9/10）
+   - 写超时保护（10 秒）
+4. **断开连接**：
+   - 读泵/写泵任一退出时，触发 `hub.unregister`
+   - Hub 从 `clients` 和 `users` 中移除该连接
+   - 关闭连接和 `send` channel
+
+### 消息协议详解（pkg/ws/protocol.go）
+| 消息类型 | 入站格式 | 出站格式 | 说明 |
+|---------|---------|---------|------|
+| ping | `{"type":"ping"}` | `{"type":"pong","data":{"ts":1234567890}}` | 心跳检测 |
+| chat | `{"type":"chat","data":{"text":"hello"}}` | `{"type":"chat","data":{"text":"hello","userId":123,"username":"user","ts":1234567890}}` | 群聊（需 token） |
+| dm | `{"type":"dm","data":{"toUserId":2,"text":"hi"}}` | `{"type":"dm","data":{"text":"hi","fromUserId":1,"fromUsername":"user1","ts":1234567890}}` | 单聊（需 token） |
+| error | 无 | `{"type":"error","msg":"错误信息"}` | 错误消息 |
+
+### 群聊实现（pkg/ws/chat.go）
+- **鉴权要求**：发送方必须携带有效 token（`client.UserID > 0`）
+- **广播规则**：仅发送给所有已鉴权用户（`user.UserID > 0`）
+- **消息字段**：包含发送方的 `userId`、`username`、`text`、`ts`（时间戳）
+
+### 单聊实现（pkg/ws/dm.go）
+- **鉴权要求**：发送方必须携带有效 token
+- **目标查找**：通过 `hub.users[toUserId]` 获取目标用户的所有连接
+- **多端同步**：消息发送给目标用户的所有在线设备
+- **回显机制**：同时回显给发送方（便于 UI 渲染）
+- **消息字段**：包含发送方的 `fromUserId`、`fromUsername`、`text`、`ts`
+
+### 超时与心跳机制
+- **读超时**：60 秒（收到任何消息时重置，包括客户端的 Pong frame）
+- **写超时**：10 秒
+- **Ping 周期**：54 秒（= 60 * 9/10，确保在读超时前发送 Ping）
+- **协议层心跳**：除 WebSocket 协议的 Ping/Pong frame 外，还支持 JSON 格式的 `{"type":"ping"}`，便于调试
+
 ## WebSocket（基础通信）
 
 - 路由：`GET /api/ws`（使用 `gorilla/websocket`，最小可用：广播/心跳/房间）。
 - 连接示例：`ws://127.0.0.1:18016/api/ws?token=<JWT>`（token 可选；传入时会解析并记录 `userId/username`，便于后续扩展鉴权/权限/房间等）。
 - 消息协议（JSON）：
   - `{"type":"ping"}`：服务端回 `{"type":"pong","data":{"ts":<unix>}}`
-  - `{"type":"chat","data":{"text":"hello"}}`：群聊广播（当前实现无房间；仅对“携带 token 建立连接”的用户开放，返回 `chat`，带 `userId/username/ts`）
+  - `{"type":"chat","data":{"text":"hello"}}`：群聊广播（当前实现无房间；仅对"携带 token 建立连接"的用户开放，返回 `chat`，带 `userId/username/ts`）
   - `{"type":"dm","data":{"toUserId":2,"text":"hi"}}`：单聊（需要在连接时携带有效 token 才有 `userId`）；服务端会把 `dm` 发给目标用户的所有连接，并回显给发送方
 - 心跳：服务端会定时发送 WS Ping frame，客户端正常回复 Pong 即可；协议层也支持 `ping/pong` 便于调试。
 
