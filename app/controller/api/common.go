@@ -21,8 +21,8 @@ type Common struct{}
 // Ping 存活探针（不依赖 DB/Redis）
 func (common *Common) Ping(c *gin.Context) {
 	utils.SuccessEncrypt(c, gin.H{
-		"ts":  time.Now().Unix(),
-		"env": viper.GetString("server.env"),
+		"ts":    time.Now().Unix(),
+		"debug": viper.GetString("server.debug"),
 	}, "pong")
 }
 
