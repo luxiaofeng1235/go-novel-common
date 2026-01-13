@@ -133,15 +133,6 @@ func GetFileUrl(path string) (fileUrl string) {
 	return newPath
 }
 
-//func GetFileUrl(path string) (fileUrl string) {
-//	if path != "" {
-//		fileUrl = fmt.Sprintf("%v%v", GetApiUrl(), path)
-//	} else {
-//		fileUrl = path
-//	}
-//	return
-//}
-
 // 解析本地路径信息
 func ParseLocalUrl(path string) (newfile string) {
 	if path == "" {
@@ -149,16 +140,6 @@ func ParseLocalUrl(path string) (newfile string) {
 	}
 	// 脚手架最小实现：不区分 env，直接返回传入路径
 	return path
-}
-
-// 获取对应的apk的下载链接
-func GetApkFileUrl(path string) (fileUrl string) {
-	if path == "" {
-		return
-	}
-	//path = strings.ReplaceAll(path, REPLACEAPK, "") //替换对应的路径信息进行显示
-	fileUrl = fmt.Sprintf("%v%v", GetDownUrl(), path)
-	return
 }
 
 // 获取路径信息
@@ -262,23 +243,7 @@ func GetReplaceChaojihuiCallbak(callback_url string, atype int, source string) (
 	return returnUrl
 }
 
-// 获取百度的回调地址并进行替换
-func GetReplaceBaiduCallbak(callback_url, atype string, avalue int) (str string) {
-	if callback_url == "" {
-		return
-	}
-	var err error
-	//解析对应的地址信息转换为decode编码信息
-	callback_url, err = url.QueryUnescape(callback_url)
-	if err != nil {
-		fmt.Println("Error decoding URL:", err)
-	}
-	registerUrl := strings.ReplaceAll(callback_url, "{{ATYPE}}", atype)
-	registerUrl = strings.ReplaceAll(registerUrl, "{{AVALUE}}", strconv.Itoa(avalue))
-	return registerUrl
-}
-
-// 获取百度请求的接口信息
+// get请求获取URL的获取的内容信息
 func GetHttpResponse(url string) (str string) {
 	resp, err := http.Get(url)
 	if err != nil {
