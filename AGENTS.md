@@ -58,8 +58,7 @@ _仓库指南_
 - 连接示例：`ws://127.0.0.1:18016/api/ws?token=<JWT>`（token 可选；传入时会解析并记录 `userId/username`，便于后续扩展鉴权/权限/房间等）。
 - 消息协议（JSON）：
   - `{"type":"ping"}`：服务端回 `{"type":"pong","data":{"ts":<unix>}}`
-  - `{"type":"join","data":{"room":"lobby"}}`：加入房间（默认 `lobby`），回 `join_ok` 并在房间内广播 `join`
-  - `{"type":"chat","data":{"text":"hello"}}`：向当前房间广播聊天（返回 `chat`，带 `room/userId/username/ts`）
+  - `{"type":"chat","data":{"text":"hello"}}`：群聊广播（当前实现无房间；仅对“携带 token 建立连接”的用户开放，返回 `chat`，带 `userId/username/ts`）
   - `{"type":"dm","data":{"toUserId":2,"text":"hi"}}`：单聊（需要在连接时携带有效 token 才有 `userId`）；服务端会把 `dm` 发给目标用户的所有连接，并回显给发送方
 - 心跳：服务端会定时发送 WS Ping frame，客户端正常回复 Pong 即可；协议层也支持 `ping/pong` 便于调试。
 
