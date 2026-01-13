@@ -14,6 +14,7 @@ import (
 	"go-novel/routers/api_routes"
 	"go-novel/routers/source_routes"
 	"log"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -23,6 +24,9 @@ func StartAdminServer() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	_ = config.GetString("server.env")
+	if strings.TrimSpace(viper.GetString("jwt.secret")) == "" {
+		log.Fatal("缺少 jwt.secret：请在 config.yml 中设置 jwt.secret（用于签发/校验登录 token）")
+	}
 	host, name, user, passwd := GetDB()
 	InitMysql(host, name, user, passwd)
 	sourceHost := viper.GetString("source.host")
@@ -42,6 +46,9 @@ func StartApiServer() {
 
 	// 触发配置加载（config 包 init 会读取根目录 config.yml）
 	_ = config.GetString("server.env")
+	if strings.TrimSpace(viper.GetString("jwt.secret")) == "" {
+		log.Fatal("缺少 jwt.secret：请在 config.yml 中设置 jwt.secret（用于签发/校验登录 token）")
+	}
 
 	var apiHost, apiPort string
 	flag.StringVar(&apiHost, "host", viper.GetString("api.host"), "api listen host")

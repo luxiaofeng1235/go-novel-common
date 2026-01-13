@@ -47,6 +47,15 @@ mysql:
   user: "root"
   password: "root"
   params: "charset=utf8mb4&parseTime=True&loc=Local"
+  pool:
+    # 最大空闲连接数（按业务规模调整）
+    maxIdleConns: 25
+    # 最大打开连接数（按业务规模调整，避免打爆 MySQL）
+    maxOpenConns: 100
+    # 连接最大复用时间（秒）
+    connMaxLifetimeSeconds: 600
+    # 连接最大空闲时间（秒，0 表示不设置）
+    connMaxIdleTimeSeconds: 300
 
 redis:
   host: "127.0.0.1"
@@ -60,6 +69,12 @@ upload:
   baseDir: "./public/upload"
   # 对外访问的 URL 前缀（应与 routers/source_routes 挂载一致）
   publicPathPrefix: "/public/upload"
+  # 最大上传大小（MB，默认 50）
+  maxSizeMB: 50
+  # 允许上传的文件后缀（空表示不限制；建议只允许图片/视频）
+  allowedExts: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".m4v", ".webm"]
+  # 允许的 Content-Type 前缀（空表示不限制）
+  allowedMimePrefixes: ["image/", "video/"]
 
 logs:
   # 日志等级(-1:Debug, 0:Info, 1:Warn, 2:Error, 3:DPanic, 4:Panic, 5:Fatal, -1<=level<=5, 参照zap.level源码)

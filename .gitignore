@@ -29,3 +29,4 @@ siluke520
 *.sql
 /tmp/build-errors.log
 /config.yml
+.gocache/

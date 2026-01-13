@@ -35,6 +35,9 @@ func LocalUpload(fileHeader *multipart.FileHeader, subDir string) (*UploadResult
 	if fileHeader == nil {
 		return nil, fmt.Errorf("上传文件不能为空")
 	}
+	if err := validateUploadFile(fileHeader); err != nil {
+		return nil, err
+	}
 
 	baseDir := viper.GetString("upload.baseDir")
 	if strings.TrimSpace(baseDir) == "" {
@@ -141,4 +144,54 @@ func buildPublicURL(publicPath string) string {
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + publicPath
 	return u.String()
+}
+
+func validateUploadFile(fileHeader *multipart.FileHeader) error {
+	if fileHeader == nil {
+		return fmt.Errorf("上传文件不能为空")
+	}
+
+	// 后缀白名单（推荐配置）
+	allowedExts := viper.GetStringSlice("upload.allowedExts")
+	if len(allowedExts) > 0 {
+		ext := strings.ToLower(path.Ext(fileHeader.Filename))
+		ok := false
+		for _, allow := range allowedExts {
+			allow = strings.ToLower(strings.TrimSpace(allow))
+			if allow == "" {
+				continue
+			}
+			if !strings.HasPrefix(allow, ".") {
+				allow = "." + allow
+			}
+			if ext == allow {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("不支持的文件类型")
+		}
+	}
+
+	// Content-Type 前缀白名单（可选）
+	allowedMimePrefixes := viper.GetStringSlice("upload.allowedMimePrefixes")
+	if len(allowedMimePrefixes) > 0 && fileHeader.Header != nil {
+		contentType := strings.ToLower(strings.TrimSpace(fileHeader.Header.Get("Content-Type")))
+		if contentType != "" {
+			ok := false
+			for _, p := range allowedMimePrefixes {
+				p = strings.ToLower(strings.TrimSpace(p))
+				if p != "" && strings.HasPrefix(contentType, p) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("不支持的文件类型")
+			}
+		}
+	}
+
+	return nil
 }
