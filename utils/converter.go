@@ -9,9 +9,10 @@ package utils
 
 import (
 	"fmt"
-	"github.com/gohouse/converter"
 	"go-novel/config"
 	"strings"
+
+	"github.com/gohouse/converter"
 )
 
 func AutoModel() {
@@ -54,19 +55,15 @@ func AutoModel() {
 		dbName = strings.TrimSpace(config.GetString("mysql.name"))
 	}
 	if dbName == "" {
-		dbName = "novel"
+		dbName = DBNAME
 	}
 
 	mysqlUser := strings.TrimSpace(config.GetString("mysql.user"))
 	if mysqlUser == "" {
-		mysqlUser = "root"
+		mysqlUser = MYSQLUSER
 	}
 	mysqlPassword := config.GetString("mysql.password")
-
 	params := strings.TrimSpace(config.GetString("mysql.params"))
-	if params == "" {
-		params = "charset=utf8"
-	}
 	params = strings.TrimPrefix(params, "?")
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", mysqlUser, mysqlPassword, mysqlAddress, dbName, params)
 
