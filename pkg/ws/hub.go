@@ -29,9 +29,11 @@ type Hub struct {
 	joinRoom      chan joinRequest
 	broadcastRoom chan roomBroadcast
 	chat          chan chatRequest
+	dm            chan dmRequest
 
 	clients map[*Client]struct{}
 	rooms   map[string]map[*Client]struct{}
+	users   map[int64]map[*Client]struct{}
 }
 
 func NewHub() *Hub {
@@ -42,8 +44,10 @@ func NewHub() *Hub {
 		joinRoom:      make(chan joinRequest, 128),
 		broadcastRoom: make(chan roomBroadcast, 512),
 		chat:          make(chan chatRequest, 512),
+		dm:            make(chan dmRequest, 512),
 		clients:       make(map[*Client]struct{}),
 		rooms:         make(map[string]map[*Client]struct{}),
+		users:         make(map[int64]map[*Client]struct{}),
 	}
 }
 
@@ -52,10 +56,12 @@ func (h *Hub) Run() {
 		select {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
+			h.addUserLocked(c)
 			h.joinRoomLocked(c, defaultRoom())
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
+				h.removeUserLocked(c)
 				h.leaveAllRoomsLocked(c)
 				close(c.send)
 				_ = c.conn.Close()
@@ -103,6 +109,8 @@ func (h *Hub) Run() {
 			}
 		case cr := <-h.chat:
 			h.broadcastChat(cr.client, cr.text)
+		case dr := <-h.dm:
+			h.sendDirectMessage(dr.client, dr.toUserID, dr.text)
 		}
 	}
 }
@@ -255,6 +263,13 @@ func (c *Client) handleMessage(message []byte) {
 		}
 		_ = json.Unmarshal(in.Data, &payload)
 		c.sendChatText(payload.Text)
+	case "dm":
+		var payload struct {
+			ToUserID int64  `json:"toUserId"`
+			Text     string `json:"text"`
+		}
+		_ = json.Unmarshal(in.Data, &payload)
+		c.sendDM(payload.ToUserID, payload.Text)
 	default:
 		// unknown -> ignore
 	}
@@ -301,6 +316,20 @@ func (c *Client) sendChatText(text string) {
 	}
 	select {
 	case c.hub.chat <- chatRequest{client: c, text: text}:
+	default:
+	}
+}
+
+func (c *Client) sendDM(toUserID int64, text string) {
+	if c == nil || c.hub == nil {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	select {
+	case c.hub.dm <- dmRequest{client: c, toUserID: toUserID, text: text}:
 	default:
 	}
 }
@@ -384,6 +413,12 @@ type chatRequest struct {
 	text   string
 }
 
+type dmRequest struct {
+	client   *Client
+	toUserID int64
+	text     string
+}
+
 func (h *Hub) sendJoinOK(c *Client, room string) {
 	if h == nil || c == nil {
 		return
@@ -450,4 +485,83 @@ func (h *Hub) broadcastChat(c *Client, text string) {
 		},
 	}
 	h.BroadcastToRoom(room, mustJSON(msg))
+}
+
+func (h *Hub) addUserLocked(c *Client) {
+	if h == nil || c == nil {
+		return
+	}
+	if c.UserID <= 0 {
+		return
+	}
+	if _, ok := h.users[c.UserID]; !ok {
+		h.users[c.UserID] = make(map[*Client]struct{})
+	}
+	h.users[c.UserID][c] = struct{}{}
+}
+
+func (h *Hub) removeUserLocked(c *Client) {
+	if h == nil || c == nil {
+		return
+	}
+	if c.UserID <= 0 {
+		return
+	}
+	if set, ok := h.users[c.UserID]; ok {
+		delete(set, c)
+		if len(set) == 0 {
+			delete(h.users, c.UserID)
+		}
+	}
+}
+
+func (h *Hub) sendDirectMessage(from *Client, toUserID int64, text string) {
+	if h == nil || from == nil {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if from.UserID <= 0 {
+		select {
+		case from.send <- mustJSON(outboundMessage{Type: "error", Data: map[string]interface{}{"msg": "unauthorized"}}):
+		default:
+		}
+		return
+	}
+	if toUserID <= 0 {
+		select {
+		case from.send <- mustJSON(outboundMessage{Type: "error", Data: map[string]interface{}{"msg": "toUserId required"}}):
+		default:
+		}
+		return
+	}
+
+	msg := outboundMessage{
+		Type: "dm",
+		Data: map[string]interface{}{
+			"text":         text,
+			"fromUserId":   from.UserID,
+			"fromUsername": from.Username,
+			"toUserId":     toUserID,
+			"ts":           time.Now().Unix(),
+		},
+	}
+	b := mustJSON(msg)
+
+	// send to all connections of the target user
+	if targets, ok := h.users[toUserID]; ok {
+		for c := range targets {
+			select {
+			case c.send <- b:
+			default:
+			}
+		}
+	}
+	// echo back to sender (so client can render sent message)
+	select {
+	case from.send <- b:
+	default:
+	}
 }

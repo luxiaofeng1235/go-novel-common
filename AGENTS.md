@@ -60,6 +60,7 @@ _仓库指南_
   - `{"type":"ping"}`：服务端回 `{"type":"pong","data":{"ts":<unix>}}`
   - `{"type":"join","data":{"room":"lobby"}}`：加入房间（默认 `lobby`），回 `join_ok` 并在房间内广播 `join`
   - `{"type":"chat","data":{"text":"hello"}}`：向当前房间广播聊天（返回 `chat`，带 `room/userId/username/ts`）
+  - `{"type":"dm","data":{"toUserId":2,"text":"hi"}}`：单聊（需要在连接时携带有效 token 才有 `userId`）；服务端会把 `dm` 发给目标用户的所有连接，并回显给发送方
 - 心跳：服务端会定时发送 WS Ping frame，客户端正常回复 Pong 即可；协议层也支持 `ping/pong` 便于调试。
 
 ## 代码风格与命名约定
