@@ -36,11 +36,11 @@ type Hub struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		register:     make(chan *Client, 128),
-		unregister:   make(chan *Client, 128),
-		broadcastAll: make(chan []byte, 512),
-		chat:         make(chan chatRequest, 512),
-		dm:           make(chan dmRequest, 512),
+		register:     make(chan *Client, 512),   // 优化：128 → 512（提升连接管理能力）
+		unregister:   make(chan *Client, 512),   // 优化：128 → 512
+		broadcastAll: make(chan []byte, 2048),   // 优化：512 → 2048（提升突发消息处理）
+		chat:         make(chan chatRequest, 2048), // 优化：512 → 2048
+		dm:           make(chan dmRequest, 2048),   // 优化：512 → 2048
 		clients:      make(map[*Client]struct{}),
 		users:        make(map[int64]map[*Client]struct{}),
 	}

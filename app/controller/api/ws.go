@@ -14,14 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go-novel/global"
-	"go-novel/pkg/ws"
 	"go-novel/utils"
 )
 
 type Ws struct{}
 
 func (wsApi *Ws) HandleRequest(c *gin.Context) {
-	if global.WsHub == nil {
+	if global.WsHubManager == nil {
 		utils.FailEncrypt(c, nil, "ws未初始化")
 		return
 	}
@@ -56,6 +55,6 @@ func (wsApi *Ws) HandleRequest(c *gin.Context) {
 		}
 	}
 
-	client := ws.NewClient(global.WsHub, conn, userID, username)
-	client.Start()
+	// 使用 HubManager 自动路由到对应分片
+	_ = global.WsHubManager.RegisterClient(conn, userID, username)
 }

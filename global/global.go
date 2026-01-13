@@ -43,7 +43,8 @@ var (
 	GeoCityReader *geoip2.Reader
 	GeoAsnReader  *geoip2.Reader
 	Ws            *melody.Melody
-	WsHub         *ws.Hub
+	WsHub         *ws.Hub        // 已废弃：保留用于兼容（使用 WsHubManager）
+	WsHubManager  *ws.HubManager // 新增：分片 Hub 管理器（优化并发能力）
 	Gojsonq       *gojsonq.JSONQ
 	Bigcache      *bigcache.BigCache
 )
