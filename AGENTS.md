@@ -33,7 +33,7 @@ _仓库指南_
   - `cp config/upload.yml.dev config/upload.yml`（业务级上传配置；不要提交 `config/upload.yml`）
 - 数据库与缓存连接统一从 `config.yml` 读取：`mysql.*`、`redis.*`（示例见 `config.yml.dev`）。
 - 入口规范（底层改造约定）：`api.go` / `admin.go` 入口文件保持“最小化”，只负责调用 `db.StartApiServer()` / `db.StartAdminServer()` 等启动函数；不要在入口里堆叠复杂参数解析、服务编排或业务初始化逻辑，统一收敛到 `db/` 的启动编排代码中。
-- 端口与模块约定（默认）：`api=8006`、`admin=8005`、`source=8007`；API 监听优先读取 `api.host/api.port`，若未配置则回退到 `server.host/server.port`；其他模块使用 `admin.host/admin.port`、`source.host/source.port`。
+- 端口与模块约定（默认）：`api=8006`、`admin=8005`、`source=8007`；API 监听统一读取 `server.host/server.port`（`api.host/api.port` 已废弃）；其他模块使用 `admin.host/admin.port`、`source.host/source.port`。
 - 运行服务（在仓库根目录）：
   - `go run ./api.go`（API 服务）
   - `go run ./admin.go`（后台服务）

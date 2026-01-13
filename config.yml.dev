@@ -3,6 +3,10 @@ server:
   debug: true
   host: 0.0.0.0
   port: 8006
+  # API 对外域名（用于拼接文件 URL 等），例如 http://127.0.0.1:8006
+  apiUrl: http://127.0.0.1
+  # 接口响应是否启用 AES 加密（脚手架默认关闭）
+  encrypt: false
   adminUrl: http://127.0.0.1 #兼容字段（建议使用 admin.adminUrl）
   downUrl: http://127.0.0.1 #对外提供给市场和业务专员的域名
 
@@ -10,10 +14,6 @@ admin:
   host: 0.0.0.0
   port: 8005
   adminUrl: http://127.0.0.1 #后台静态资源域名（如后台上传图片）
-
-api:
-  encrypt: false
-  apiUrl: http://127.0.0.1 #API 对外域名（用于拼接文件 URL 等）
 
 source:
   host: 0.0.0.0

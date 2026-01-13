@@ -125,7 +125,7 @@ func buildPublicURL(publicPath string) string {
 
 	apiURL := strings.TrimSpace(viper.GetString("source.apiUrl"))
 	if apiURL == "" {
-		apiURL = viper.GetString("api.apiUrl")
+		apiURL = viper.GetString("server.apiUrl")
 	}
 	sourcePort := strings.TrimSpace(viper.GetString("source.port"))
 
