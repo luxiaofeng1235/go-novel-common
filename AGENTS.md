@@ -30,12 +30,129 @@ _仓库指南_
 - 依赖方向：`routers` → `app/controller` → `app/service` → `app/models`（单向依赖）；禁止反向引用（例如 models 引用 service/routers）。
 - 示例（新增一个 API 接口）：1) `routers/api_routes/*.go` 注册 `POST /api/xxx`；2) `app/controller/api/xxx.go` `ShouldBind` 到 `models.*Req`；3) `app/service/api/xxx_service/*.go` 实现核心逻辑；4) 需要落库则补 `app/models/*.go`。
 
+## 配置文件完整说明
+
+### 主配置文件（config.yml）
+```yaml
+# 服务配置
+server:
+  env: prod                              # 环境标识
+  debug: false                           # 调试模式
+  host: 0.0.0.0                          # API 监听地址
+  port: 8006                             # API 监听端口
+  apiUrl: http://127.0.0.1:8006          # API 对外访问地址
+  downUrl: http://127.0.0.1:8006         # 下载域名
+  encrypt: false                         # 是否加密请求/响应
+
+# 后台配置
+admin:
+  host: 0.0.0.0
+  port: 8005
+
+# 静态资源服务
+source:
+  host: 0.0.0.0
+  port: 8007
+  apiUrl: http://127.0.0.1              # 静态资源服务地址
+  publicBaseUrl: http://127.0.0.1:8007  # 对外访问地址（优先级高于 apiUrl）
+
+# JWT 配置（必配）
+jwt:
+  secret: "your-secret-key-here"        # JWT 签名密钥（不能为空）
+
+# 密码加密配置
+auth:
+  passwordSalt: "your-salt-here"        # 密码盐值（可选）
+
+# MySQL 配置
+mysql:
+  address: ""                           # 完整地址（优先级最高，如 "127.0.0.1:3306"）
+  host: "127.0.0.1"                     # 主机地址
+  port: 3306                            # 端口
+  database: "novel"                     # 数据库名（优先级：database > dbname > name）
+  user: "root"                          # 用户名
+  password: "root"                      # 密码
+  params: "charset=utf8mb4&parseTime=True&loc=Local"  # 连接参数
+  pool:                                 # 连接池配置
+    maxIdleConns: 25                    # 最大空闲连接数
+    maxOpenConns: 100                   # 最大打开连接数
+    connMaxLifetimeSeconds: 600         # 连接最大生命周期（秒）
+    connMaxIdleTimeSeconds: 300         # 连接最大空闲时间（秒）
+
+# Redis 配置
+redis:
+  addr: ""                              # 完整地址（优先级最高，如 "127.0.0.1:6379"）
+  host: "127.0.0.1"                     # 主机地址
+  port: 6379                            # 端口
+  password: ""                          # 密码（可选）
+  db: 0                                 # 数据库编号
+
+# 日志配置
+logs:
+  level: -1                             # 日志级别（-1=Debug, 0=Info, 1=Warn, 2=Error）
+  path: "logs"                          # 日志路径
+  max-size: 50                          # 单文件最大大小（MB）
+  max-backups: 100                      # 保留备份文件数量
+  max-age: 30                           # 保留天数
+  compress: false                       # 是否压缩
+
+# Casbin 权限配置
+casbin:
+  modelFile: ./public/casbin_conf/rbac_model.conf
+  policyFile: ./public/casbin_conf/rbac_policy.csv
+```
+
+### 上传配置文件（config/upload.yml，可选）
+```yaml
+upload:
+  baseDir: "./public/upload"           # 本地存储根目录
+  publicPathPrefix: "/public/upload"   # 公共访问路径前缀
+  maxSizeMB: 50                        # 最大文件大小（MB）
+  allowedExts:                         # 允许的文件后缀
+    - .jpg
+    - .jpeg
+    - .png
+    - .gif
+    - .webp
+    - .bmp
+    - .mp4
+    - .mp3
+    - .wav
+    - .pdf
+    - .doc
+    - .docx
+    - .xls
+    - .xlsx
+  allowedMimePrefixes:                 # 允许的 MIME 前缀
+    - "image/"
+    - "video/"
+    - "audio/"
+    - "application/pdf"
+    - "application/msword"
+    - "application/vnd.openxmlformats-officedocument"
+```
+
+## 全局变量说明（global/global.go）
+
+项目通过 `global` 包统一管理全局变量，核心实例如下：
+
+### 常用全局变量
+- `global.DB`：MySQL 数据库连接（GORM）
+- `global.Redis`：Redis 客户端
+- `global.WsHub`：WebSocket Hub 实例
+- `global.Errlog`、`global.Sqllog`：错误日志、SQL 日志（Zap SugaredLogger）
+
+### 使用规范
+- **DB 访问**：所有 Service 层通过 `global.DB` 访问数据库，禁止在 Controller 中直接使用
+- **日志记录**：选择对应模块的日志实例，如 `global.Errlog.Error("错误信息")`
+- **Redis 操作**：通过 `global.Redis` 执行缓存操作
+
 ## 构建、测试与本地开发命令
 
 - 初始化本地配置：
   - `cp config.yml.dev config.yml`（项目级配置；不要提交 `config.yml`）
   - `cp config/upload.yml.dev config/upload.yml`（业务级上传配置；不要提交 `config/upload.yml`）
-- 数据库与缓存连接统一从 `config.yml` 读取：`mysql.*`、`redis.*`（示例见 `config.yml.dev`）。
+- 数据库与缓存连接统一从 `config.yml` 读取：`mysql.*`、`redis.*`（示例见上方配置说明）。
 - 入口规范（底层改造约定）：`api.go` / `admin.go` 入口文件保持“最小化”，只负责调用 `db.StartApiServer()` / `db.StartAdminServer()` 等启动函数；不要在入口里堆叠复杂参数解析、服务编排或业务初始化逻辑，统一收敛到 `db/` 的启动编排代码中。
 - 端口与模块约定（默认）：`api=8006`、`admin=8005`、`source=8007`；API 监听统一读取 `server.host/server.port`（`api.host/api.port` 已废弃）；其他模块使用 `admin.host/admin.port`、`source.host/source.port`。
 - 运行服务（在仓库根目录）：
