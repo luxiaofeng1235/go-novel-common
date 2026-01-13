@@ -35,7 +35,8 @@ _仓库指南_
 - 入口规范（底层改造约定）：`api.go` / `admin.go` 入口文件保持“最小化”，只负责调用 `db.StartApiServer()` / `db.StartAdminServer()` 等启动函数；不要在入口里堆叠复杂参数解析、服务编排或业务初始化逻辑，统一收敛到 `db/` 的启动编排代码中。
 - 端口与模块约定（默认）：`api=8006`、`admin=8005`、`source=8007`；API 监听统一读取 `server.host/server.port`（`api.host/api.port` 已废弃）；其他模块使用 `admin.host/admin.port`、`source.host/source.port`。
 - 运行服务（在仓库根目录）：
-  - `go run ./api.go`（API 服务）
+  - `go run ./api.go`（API 服务；同进程启动 `source` 静态服务，默认监听 `source.host/source.port`）
+  - `go run ./api.go -host 0.0.0.0 -port 18016`（覆盖监听地址/端口，便于本地多实例/避免端口占用）
   - `go run ./admin.go`（后台服务）
   - `go run ./source.go`（source 服务）
 - 构建单个入口：
