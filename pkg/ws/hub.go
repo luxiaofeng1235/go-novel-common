@@ -32,6 +32,9 @@ type Hub struct {
 	// clients：所有在线连接（包含未登录连接）；users：按 userID 归档（同账号多端在线）。
 	clients map[*Client]struct{}
 	users   map[int64]map[*Client]struct{}
+
+	// 回调函数：客户端断开连接时通知 HubManager 更新计数器
+	onClientUnregister func(*Client)
 }
 
 func NewHub() *Hub {
@@ -58,6 +61,10 @@ func (h *Hub) Run() {
 				h.removeUserLocked(c)
 				close(c.send)
 				_ = c.conn.Close()
+				// 通知 HubManager 更新计数器
+				if h.onClientUnregister != nil {
+					h.onClientUnregister(c)
+				}
 			}
 		case msg := <-h.broadcastAll:
 			for c := range h.clients {

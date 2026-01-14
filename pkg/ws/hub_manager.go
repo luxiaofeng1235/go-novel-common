@@ -15,10 +15,11 @@ import (
 
 // HubManager 管理多个 Hub 分片，按 userID 哈希分配，实现水平扩展
 type HubManager struct {
-	shards      []*Hub
-	shardCount  int
-	totalConns  int64 // 原子计数器：总连接数
-	totalAuthed int64 // 原子计数器：已鉴权连接数
+	shards           []*Hub
+	shardCount       int
+	guestRoundRobin  int64 // 原子计数器：游客轮询分配（不影响 totalConns）
+	totalConns       int64 // 原子计数器：总连接数
+	totalAuthed      int64 // 原子计数器：已鉴权连接数
 }
 
 // NewHubManager 创建指定数量分片的 HubManager（推荐 4-8 个分片）
@@ -27,15 +28,19 @@ func NewHubManager(shardCount int) *HubManager {
 		shardCount = 4 // 默认 4 个分片
 	}
 
-	shards := make([]*Hub, shardCount)
-	for i := 0; i < shardCount; i++ {
-		shards[i] = NewHub()
-	}
-
-	return &HubManager{
-		shards:     shards,
+	hm := &HubManager{
+		shards:     make([]*Hub, shardCount),
 		shardCount: shardCount,
 	}
+
+	// 创建 Hub 并设置断开连接回调
+	for i := 0; i < shardCount; i++ {
+		hub := NewHub()
+		hub.onClientUnregister = hm.onClientDisconnect
+		hm.shards[i] = hub
+	}
+
+	return hm
 }
 
 // Run 启动所有 Hub 分片（每个分片一个 goroutine）
@@ -53,10 +58,10 @@ func (hm *HubManager) GetHub(userID int64) *Hub {
 	if hm == nil || len(hm.shards) == 0 {
 		return nil
 	}
-	// 游客（userID=0）随机分配，已登录用户按 userID 哈希
+	// 游客（userID=0）轮询分配，已登录用户按 userID 哈希
 	if userID <= 0 {
-		// 使用原子计数器轮询分配游客连接
-		idx := atomic.AddInt64(&hm.totalConns, 1) % int64(hm.shardCount)
+		// 使用独立的轮询计数器（不影响 totalConns 统计）
+		idx := atomic.AddInt64(&hm.guestRoundRobin, 1) % int64(hm.shardCount)
 		return hm.shards[idx]
 	}
 	// 已登录用户按 userID 取模，保证同一用户的多端连接在同一分片
@@ -91,6 +96,19 @@ func (hm *HubManager) Broadcast(msg []byte) {
 	}
 	for _, hub := range hm.shards {
 		hub.Broadcast(msg)
+	}
+}
+
+// onClientDisconnect 客户端断开连接时的回调（由 Hub 调用）
+func (hm *HubManager) onClientDisconnect(c *Client) {
+	if hm == nil || c == nil {
+		return
+	}
+	// 减少总连接数
+	atomic.AddInt64(&hm.totalConns, -1)
+	// 如果是已鉴权用户，减少已鉴权连接数
+	if c.UserID > 0 {
+		atomic.AddInt64(&hm.totalAuthed, -1)
 	}
 }
 

@@ -56,7 +56,7 @@ _仓库指南_
 ### 常用全局变量
 - `global.DB`：MySQL 数据库连接（GORM）
 - `global.Redis`：Redis 客户端
-- `global.WsHub`：WebSocket Hub 实例
+- `global.WsHubManager`：WebSocket HubManager 实例（分片架构，根据 CPU 核心数自动优化并发能力）
 - `global.Errlog`、`global.Sqllog`：错误日志、SQL 日志（Zap SugaredLogger）
 
 ### 使用规范
