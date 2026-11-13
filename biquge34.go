@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -35,7 +36,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const bqg349ChapterWorkers = 20
+const (
+	bqg349BookWorkers    = 5
+	bqg349ChapterWorkers = 20
+)
 
 func main() {
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
@@ -88,55 +92,118 @@ func runBqg349Collector(ctx context.Context, interval time.Duration, collect fun
 }
 
 func collectBqg349Site(ctx context.Context, client *bqg349_service.Client) error {
+	// 多本书共享正文下载额度，不能把每本书的 20 个协程叠成无上限并发。
+	fetch := limitBqg349ChapterFetch(client.ChapterText, bqg349ChapterWorkers)
+	log.Printf("批量采集并发配置 book-workers=%d chapter-workers-total=%d", bqg349BookWorkers, bqg349ChapterWorkers)
 	return walkBqg349Site(ctx, client, func(ctx context.Context, book *bqg349_service.Book) error {
-		return syncBqg349Book(ctx, client, book)
+		return syncBqg349Book(ctx, client, book, fetch)
 	})
 }
 
-func walkBqg349Site(ctx context.Context, client *bqg349_service.Client, save func(context.Context, *bqg349_service.Book) error) error {
+type bqg349SiteClient interface {
+	Categories() []bqg349_service.Category
+	Books(context.Context, string) ([]bqg349_service.Book, error)
+	Book(context.Context, string) (*bqg349_service.Book, error)
+}
+
+func walkBqg349Site(ctx context.Context, client bqg349SiteClient, save func(context.Context, *bqg349_service.Book) error) error {
 	seen := make(map[bqg349_service.ID]bool)
-	var processed, failed int
+	var processed int
+	var failed atomic.Int64
+	jobs := make(chan bqg349_service.Book, bqg349BookWorkers)
+	var wg sync.WaitGroup
+	var identityMu sync.Mutex
+	// 不同源 ID 可能对应同一本书，必须在入库和写文件前按书名、作者再次去重。
+	identities := make(map[[2]string]bool)
+	for worker := 0; worker < bqg349BookWorkers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for book := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				detail, err := client.Book(ctx, book.URL)
+				if err == nil {
+					identity := [2]string{detail.Title, detail.Author}
+					identityMu.Lock()
+					duplicate := identities[identity]
+					identities[identity] = true
+					identityMu.Unlock()
+					if duplicate {
+						log.Printf("跳过重复书籍 source-id=%d book=%q author=%q", book.ID, detail.Title, detail.Author)
+						continue
+					}
+					err = save(ctx, detail)
+				}
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					failed.Add(1)
+					log.Printf("采集失败 source-id=%d book=%q author=%q: %v", book.ID, book.Title, book.Author, err)
+				}
+			}
+		}()
+	}
+categories:
 	for _, category := range client.Categories() {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			break
 		}
 		books, err := client.Books(ctx, category.URL)
 		if err != nil {
-			failed++
+			if ctx.Err() != nil {
+				break
+			}
+			failed.Add(1)
 			log.Printf("获取分类失败 category=%s: %v", category.Name, err)
 			continue
 		}
 		log.Printf("分类 %s 获取到 %d 本书", category.Name, len(books))
 		for _, book := range books {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 			if seen[book.ID] {
 				continue
 			}
 			seen[book.ID] = true
 			processed++
-			detail, err := client.Book(ctx, book.URL)
-			if err == nil {
-				err = save(ctx, detail)
-			}
-			if err != nil {
-				if ctx.Err() != nil {
-					return err
-				}
-				failed++
-				log.Printf("采集失败 source-id=%d book=%q author=%q: %v", book.ID, book.Title, book.Author, err)
+			select {
+			case jobs <- book:
+			case <-ctx.Done():
+				break categories
 			}
 		}
 	}
-	log.Printf("本轮结束 books=%d failures=%d", processed, failed)
-	if failed > 0 {
-		return fmt.Errorf("本轮有 %d 项采集失败，已完成进度保留", failed)
+	close(jobs)
+	// 等待所有在采书籍保存各自进度后再结束本轮或响应停止信号。
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	log.Printf("本轮结束 books=%d failures=%d", processed, failed.Load())
+	if failures := failed.Load(); failures > 0 {
+		return fmt.Errorf("本轮有 %d 项采集失败，已完成进度保留", failures)
 	}
 	return nil
 }
 
-func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bqg349_service.Book) (err error) {
+func limitBqg349ChapterFetch(fetch func(context.Context, bqg349_service.Chapter) (string, error), concurrency int) func(context.Context, bqg349_service.Chapter) (string, error) {
+	slots := make(chan struct{}, concurrency)
+	return func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return fetch(ctx, chapter)
+	}
+}
+
+func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bqg349_service.Book, fetch func(context.Context, bqg349_service.Chapter) (string, error)) (err error) {
 	local, err := saveBqg349Book(ctx, global.DB, book)
 	if err != nil {
 		return err
@@ -163,7 +230,7 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 		}
 	}()
 	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, len(chapters), bqg349ChapterWorkers)
-	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, client.ChapterText, false)
+	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, fetch, false)
 }
 
 // saveBqg349Book 按书名和作者查重；空库直接新增，后续更新同一条书籍记录。

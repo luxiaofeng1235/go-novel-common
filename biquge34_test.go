@@ -17,7 +17,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,13 +63,17 @@ func TestBqg349DiscoversSourceBooksWithoutLocalRows(t *testing.T) {
 				t.Fatal(err)
 			}
 			var saved []bqg349_service.ID
+			var mu sync.Mutex
 			err = walkBqg349Site(context.Background(), client, func(ctx context.Context, book *bqg349_service.Book) error {
+				mu.Lock()
 				saved = append(saved, book.ID)
+				mu.Unlock()
 				if failFirst && book.ID == 2530 {
 					return errors.New("模拟入库失败")
 				}
 				return nil
 			})
+			sort.Slice(saved, func(i, j int) bool { return saved[i] < saved[j] })
 			if (err != nil) != failFirst || !reflect.DeepEqual(saved, []bqg349_service.ID{2530, 2531}) {
 				t.Fatalf("空库发现新书、分类去重或失败后继续异常: saved=%v err=%v", saved, err)
 			}
