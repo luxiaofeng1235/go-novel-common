@@ -50,7 +50,7 @@ func (common *Common) GoTest(c *gin.Context) {
 	m["aaa"] = 1
 	m["bbb"] = 334
 	m["ccc"] = "324"
-	debugger.Hang("调试数据", m)
+	debugger.Hang(11111111111, m, "testarr")
 	return
 	utils.Success(c, m, "ok")
 }

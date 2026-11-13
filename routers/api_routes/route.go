@@ -61,7 +61,7 @@ func getHttpString() string {
 	var port string
 	flag.StringVar(&port, "port", viper.GetString("api.port"), "default :port")
 	flag.Parse()
-	return fmt.Sprintf(":%s", port)
+	return fmt.Sprintf("0.0.0.0:%s", port)
 }
 
 // 获取笔趣阁的端口监听
@@ -69,7 +69,7 @@ func getBiqugeHttpString() string {
 	var port string
 	flag.StringVar(&port, "port", viper.GetString("biquge.port"), "default :port")
 	flag.Parse()
-	return fmt.Sprintf(":%s", port)
+	return fmt.Sprintf("0.0.0.0:%s", port)
 }
 
 // 笔趣阁的路由配置

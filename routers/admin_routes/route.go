@@ -82,5 +82,5 @@ func getHttpString() string {
 	var port string
 	flag.StringVar(&port, "port", viper.GetString("server.port"), "default :port")
 	flag.Parse()
-	return fmt.Sprintf(":%s", port)
+	return fmt.Sprintf("0.0.0.0:%s", port)
 }
