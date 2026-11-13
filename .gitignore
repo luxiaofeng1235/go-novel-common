@@ -6,7 +6,7 @@
 .vscode/
 .DS_Store
 Thumbs.db
-
+/.playwright-mcp
 # Go 构建产物
 /novel-*
 /collect-*
