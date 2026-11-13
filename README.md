@@ -24,6 +24,22 @@
 | 管理后台 | `go run ./admin.go` | 8006 | `/system` |
 | 书源服务 | `go run ./source.go` | 8007 | `/source` |
 
+## 接口临时调试
+
+在控制器或业务代码中导入 `go-novel/internal/debugger`，直接调用：
+
+```go
+import "go-novel/internal/debugger"
+
+debugger.Hang(111)
+debugger.Hang(result)
+debugger.Hang("查询结果", result)
+```
+
+输出包含时间、调用文件及行号、变量类型和内容。变量在调用时格式化，终端由后台协程统一输出；容量为 128 条的队列满时跳过输出，可通过 `debugger.Dropped()` 查看累计丢弃数量。
+
+程序正常退出前可按需调用 `debugger.Flush(ctx)`，等待此前入队的消息完成写入尝试；建议给 `ctx` 设置超时，不要在每次接口调用时执行。
+
 ## 构建与平台切换
 
 以下命令在 **Windows CMD** 中执行。根目录存在多个 `main()`，构建时需指定入口文件。
