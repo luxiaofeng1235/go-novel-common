@@ -229,8 +229,88 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 			log.Printf("整本同步完成 local-id=%d book=%q chapters=%d", local.Id, local.BookName, len(chapters))
 		}
 	}()
-	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, len(chapters), bqg349ChapterWorkers)
+	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q cid=%d class=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, local.Cid, local.ClassName, len(chapters), bqg349ChapterWorkers)
 	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, fetch, false)
+}
+
+// bqg349ClassCandidates 兼容书源分类简称和本地展示名称，不写死数据库 ID。
+func bqg349ClassCandidates(category string) []string {
+	name := strings.TrimSuffix(strings.TrimSpace(category), "小说")
+	if strings.HasPrefix(name, "女生") && name != "女生" {
+		name = strings.TrimPrefix(name, "女生")
+	}
+	aliases := map[string][]string{
+		"玄幻": {"玄幻奇幻", "玄幻言情"}, "奇幻": {"玄幻奇幻", "玄幻言情"},
+		"武侠": {"传统武侠", "武侠仙侠"}, "仙侠": {"古典仙侠", "武侠仙侠", "仙侠奇缘"},
+		"修真": {"古典仙侠", "仙侠", "武侠仙侠", "仙侠奇缘"},
+		"都市": {"都市言情", "现代言情"}, "都市言情": {"都市", "现代言情"},
+		"历史": {"历史题材", "历史军事"},
+		"军事": {"军旅战争", "历史军事"}, "现实": {"现实题材"},
+		"网游": {"游戏异界", "游戏", "游戏竞技"}, "游戏": {"网游", "游戏异界", "游戏竞技"},
+		"科幻": {"未来科幻", "科幻空间"}, "悬疑": {"悬疑灵异", "悬疑推理"},
+		"灵异": {"悬疑灵异", "悬疑", "悬疑推理"}, "体育": {"体育竞技"},
+		"女生": {"现代言情", "古代言情"}, "女频": {"女生", "现代言情"},
+		"言情": {"现代言情", "古代言情"},
+	}
+	names := []string{strings.TrimSpace(category), name}
+	names = append(names, aliases[name]...)
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(names))
+	for _, candidate := range names {
+		if candidate != "" && !seen[candidate] {
+			result = append(result, candidate)
+			seen[candidate] = true
+		}
+	}
+	return result
+}
+
+func matchBqg349BookClass(ctx context.Context, database *gorm.DB, category string, local *models.McBook) (*models.McBookClass, error) {
+	// 保留有效的本地分类，包括后台手工指定的分类；同步其最新名称。
+	if local.Cid > 0 {
+		var class models.McBookClass
+		err := database.WithContext(ctx).Where("id = ?", local.Cid).Take(&class).Error
+		if err == nil {
+			return &class, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
+	bookType := local.BookType
+	if bookType != 2 {
+		bookType = 1
+	}
+	if strings.Contains(category, "女生") || strings.Contains(category, "女频") {
+		bookType = 2
+	}
+	names := bqg349ClassCandidates(category)
+	var matches []models.McBookClass
+	if err := database.WithContext(ctx).Where("book_type IN ? AND status = 1 AND class_name IN ?", []int{1, 2}, names).Order("sort ASC, id ASC").Find(&matches).Error; err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		for i := range matches {
+			if matches[i].BookType == bookType && matches[i].ClassName == name {
+				return &matches[i], nil
+			}
+		}
+	}
+	// “古代言情”等明确的女频分类可由实际分类记录识别，避免默认归到男生。
+	if bookType == 1 {
+		for _, name := range names {
+			for i := range matches {
+				if matches[i].ClassName == name {
+					return &matches[i], nil
+				}
+			}
+		}
+	}
+	var fallback models.McBookClass
+	if err := database.WithContext(ctx).Where("book_type = ? AND class_name = ? AND status = 1", bookType, "其他").Order("id ASC").Take(&fallback).Error; err != nil {
+		return nil, fmt.Errorf("来源分类 %q 无可用本地分类（book_type=%d）: %w", category, bookType, err)
+	}
+	return &fallback, nil
 }
 
 // saveBqg349Book 按书名和作者查重；空库直接新增，后续更新同一条书籍记录。
@@ -248,25 +328,23 @@ func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service
 		serialize = 2
 	}
 	now := time.Now().Unix()
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	isNew := errors.Is(err, gorm.ErrRecordNotFound)
+	if isNew {
 		local = models.McBook{BookName: book.Title, Author: book.Author, BookType: 1, ClassName: book.Category, Status: 1, Addtime: now, Uptime: now}
-		if strings.Contains(book.Category, "女生") {
-			local.BookType = 2
-		}
-		// 沿用本地分类配置，不写死分类 ID。
-		var class models.McBookClass
-		if classErr := database.WithContext(ctx).Where("class_name IN ?", []string{book.Category, book.Category + "小说"}).Take(&class).Error; classErr == nil {
-			local.Cid, local.ClassName = class.Id, class.ClassName
-			if class.BookType > 0 {
-				local.BookType = class.BookType
-			}
-		}
+	}
+	class, err := matchBqg349BookClass(ctx, database, book.Category, &local)
+	if err != nil {
+		return nil, err
+	}
+	local.Cid, local.ClassName, local.BookType = class.Id, class.ClassName, class.BookType
+	if isNew {
 		if err := database.WithContext(ctx).Create(&local).Error; err != nil {
 			return nil, fmt.Errorf("新增 mc_book 失败: %w", err)
 		}
 		log.Printf("新书入库 local-id=%d source-id=%d book=%q author=%q", local.Id, book.ID, book.Title, book.Author)
 	}
 	data := map[string]any{
+		"cid": local.Cid, "class_name": local.ClassName, "book_type": local.BookType,
 		"source_url": book.URL, "category_name": book.Category, "desc": book.Intro,
 		"serialize": serialize, "last_chapter_title": book.LastChapter,
 		"last_chapter_time": utils.DateToUnix(book.LastUpdate), "uptime": now,
@@ -295,9 +373,6 @@ func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service
 	}
 	if local.Score <= 0 {
 		data["score"] = score
-	}
-	if local.ClassName == "" {
-		data["class_name"] = book.Category
 	}
 	if local.Pic == "" {
 		data["pic"] = book.CoverURL

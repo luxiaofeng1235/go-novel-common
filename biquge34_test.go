@@ -386,6 +386,53 @@ func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 		defer tx.Exec("DROP TEMPORARY TABLE IF EXISTS " + table)
 	}
 	ctx := context.Background()
+	classes := []models.McBookClass{
+		{BookType: 1, ClassName: "玄幻奇幻", Status: 1},
+		{BookType: 1, ClassName: "传统武侠", Status: 1},
+		{BookType: 1, ClassName: "古典仙侠", Status: 1},
+		{BookType: 1, ClassName: "都市言情", Status: 1},
+		{BookType: 1, ClassName: "未来科幻", Status: 1},
+		{BookType: 1, ClassName: "其他", Status: 1},
+		{BookType: 2, ClassName: "女生", Status: 1},
+		{BookType: 2, ClassName: "古代言情", Status: 1},
+		{BookType: 2, ClassName: "玄幻言情", Status: 1},
+		{BookType: 2, ClassName: "现代言情", Status: 1},
+		{BookType: 2, ClassName: "其他", Status: 1},
+		{BookType: 1, ClassName: "玄幻", Status: 0},
+	}
+	classIDs := make(map[string]int64)
+	for i := range classes {
+		if err := tx.Create(&classes[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+		classIDs[fmt.Sprintf("%d:%s", classes[i].BookType, classes[i].ClassName)] = classes[i].Id
+	}
+	for _, tc := range []struct {
+		category string
+		bookType int
+		cid      int64
+		want     string
+	}{
+		{"玄幻", 1, 0, "1:玄幻奇幻"},
+		{" 玄幻小说 ", 1, 0, "1:玄幻奇幻"},
+		{"武侠", 1, 0, "1:传统武侠"},
+		{"修真", 1, 0, "1:古典仙侠"},
+		{"都市", 1, 0, "1:都市言情"},
+		{"科幻", 1, 0, "1:未来科幻"},
+		{"女生小说", 1, 0, "2:女生"},
+		{"古代言情", 1, 0, "2:古代言情"},
+		{"女生玄幻小说", 1, 0, "2:玄幻言情"},
+		{"都市言情", 2, 0, "2:现代言情"},
+		{"未知分类", 1, 0, "1:其他"},
+		{"未知分类", 2, 0, "2:其他"},
+		{"玄幻", 1, 9999999, "1:玄幻奇幻"},
+		{"玄幻", 1, classIDs["1:其他"], "1:其他"},
+	} {
+		class, err := matchBqg349BookClass(ctx, tx, tc.category, &models.McBook{BookType: tc.bookType, Cid: tc.cid})
+		if err != nil || class == nil || class.Id != classIDs[tc.want] {
+			t.Fatalf("来源分类匹配错误: category=%q type=%d got=%+v err=%v want=%s", tc.category, tc.bookType, class, err, tc.want)
+		}
+	}
 	remote := &bqg349_service.Book{ID: 2530, Title: "采集测试书", Author: "测试作者", Category: "玄幻", Status: "连载", Intro: "简介", URL: bqg349_service.DefaultSite + "/#/book/2530/", CoverURL: "cover", LastChapter: "第二章", LastUpdate: "2026-11-13"}
 	local, err := saveBqg349Book(ctx, tx, remote)
 	if err != nil || local == nil || local.Id <= 0 {
@@ -395,7 +442,7 @@ func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 	if err := tx.Where("id = ?", local.Id).Take(&initial).Error; err != nil {
 		t.Fatal(err)
 	}
-	if initial.ReadCount < 1 || initial.ReadCount >= 10000 || initial.SearchCount < 1 || initial.SearchCount >= 1000 || initial.SearchNum < initial.SearchCount || initial.SearchNum >= initial.SearchCount+3000 || initial.Hits < 5000 || initial.Hits >= 9999 || initial.Score < 6 || initial.Score >= 9 || initial.ClassName != remote.Category || initial.Status != 1 || initial.Addtime <= 0 || initial.Uptime < initial.Addtime {
+	if initial.ReadCount < 1 || initial.ReadCount >= 10000 || initial.SearchCount < 1 || initial.SearchCount >= 1000 || initial.SearchNum < initial.SearchCount || initial.SearchNum >= initial.SearchCount+3000 || initial.Hits < 5000 || initial.Hits >= 9999 || initial.Score < 6 || initial.Score >= 9 || initial.ClassName != "玄幻奇幻" || initial.Cid != classIDs["1:玄幻奇幻"] || initial.Status != 1 || initial.Addtime <= 0 || initial.Uptime < initial.Addtime {
 		t.Fatalf("新书随机热度、分类或时间有误: %+v", initial)
 	}
 	remote.Status = "已完成"
@@ -441,6 +488,19 @@ func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 	}
 	if filled.ReadCount <= 0 || filled.SearchCount <= 0 || filled.SearchNum < filled.SearchCount || filled.Hits != saved.Hits || filled.Status != 0 {
 		t.Fatalf("补零值时覆盖了已有统计或隐藏状态: %+v", filled)
+	}
+	if err := tx.Model(&models.McBook{}).Where("id = ?", local.Id).Updates(map[string]any{"cid": 0, "class_name": "旧分类"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saveBqg349Book(ctx, tx, remote); err != nil {
+		t.Fatal(err)
+	}
+	var repaired models.McBook
+	if err := tx.Where("id = ?", local.Id).Take(&repaired).Error; err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Cid != initial.Cid || repaired.ClassName != "玄幻奇幻" || repaired.BookType != 1 || repaired.Status != 0 {
+		t.Fatalf("再次采集未修复已有书籍的 cid 和分类名称: %+v", repaired)
 	}
 }
 
