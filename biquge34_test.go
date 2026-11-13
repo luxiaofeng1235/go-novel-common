@@ -81,6 +81,277 @@ func TestBqg349DiscoversSourceBooksWithoutLocalRows(t *testing.T) {
 	}
 }
 
+type bqg349TestSite struct {
+	books []bqg349_service.Book
+}
+
+func newBqg349TestSite(count int) *bqg349TestSite {
+	site := &bqg349TestSite{}
+	for i := 1; i <= count; i++ {
+		site.books = append(site.books, bqg349_service.Book{ID: bqg349_service.ID(i), Title: fmt.Sprintf("测试书%d", i), Author: "作者", URL: fmt.Sprintf("book-%d", i)})
+	}
+	return site
+}
+
+func (site *bqg349TestSite) Categories() []bqg349_service.Category {
+	return []bqg349_service.Category{{Name: "分类一", URL: "one"}, {Name: "分类二", URL: "two"}}
+}
+
+func (site *bqg349TestSite) Books(ctx context.Context, _ string) ([]bqg349_service.Book, error) {
+	return site.books, ctx.Err()
+}
+
+func (site *bqg349TestSite) Book(ctx context.Context, url string) (*bqg349_service.Book, error) {
+	for _, book := range site.books {
+		if book.URL == url {
+			return &book, ctx.Err()
+		}
+	}
+	return nil, errors.New("没有此书")
+}
+
+func TestBqg349ProcessesMultipleBooksAndContinuesAfterFailure(t *testing.T) {
+	site := newBqg349TestSite(bqg349BookWorkers + 3)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{}, len(site.books))
+	release := make(chan struct{})
+	var active, peak atomic.Int32
+	counts := make(map[bqg349_service.ID]int)
+	var mu sync.Mutex
+	done := make(chan error, 1)
+	go func() {
+		done <- walkBqg349Site(ctx, site, func(ctx context.Context, book *bqg349_service.Book) error {
+			current := active.Add(1)
+			defer active.Add(-1)
+			for previous := peak.Load(); current > previous; previous = peak.Load() {
+				if peak.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			mu.Lock()
+			counts[book.ID]++
+			mu.Unlock()
+			started <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if book.ID == 1 {
+				return errors.New("一本书暂时失败")
+			}
+			return nil
+		})
+	}()
+	for i := 0; i < bqg349BookWorkers; i++ {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("其他书籍仍在等待第一本完成")
+		}
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err == nil || peak.Load() != bqg349BookWorkers || active.Load() != 0 {
+			t.Fatalf("书籍并发上限、错误汇总或退出有误: peak=%d active=%d err=%v", peak.Load(), active.Load(), err)
+		}
+	case <-ctx.Done():
+		t.Fatal("多本书采集未结束")
+	}
+	if len(counts) != len(site.books) {
+		t.Fatalf("失败后未继续其他书籍: %v", counts)
+	}
+	for id, count := range counts {
+		if count != 1 {
+			t.Fatalf("同一源 ID 跨分类重复处理: id=%d count=%d", id, count)
+		}
+	}
+}
+
+func TestBqg349DeduplicatesBookIdentityAcrossSourceIDs(t *testing.T) {
+	site := newBqg349TestSite(2)
+	site.books[1].Title, site.books[1].Author = site.books[0].Title, site.books[0].Author
+	var saves atomic.Int32
+	err := walkBqg349Site(context.Background(), site, func(context.Context, *bqg349_service.Book) error {
+		saves.Add(1)
+		return nil
+	})
+	if err != nil || saves.Load() != 1 {
+		t.Fatalf("同名同作者的别名书重复入库或写文件: calls=%d err=%v", saves.Load(), err)
+	}
+}
+
+func TestBqg349CancelConcurrentBooks(t *testing.T) {
+	site := newBqg349TestSite(bqg349BookWorkers * 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, len(site.books))
+	var active, saves atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- walkBqg349Site(ctx, site, func(ctx context.Context, book *bqg349_service.Book) error {
+			active.Add(1)
+			defer active.Add(-1)
+			saves.Add(1)
+			started <- struct{}{}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	for i := 0; i < bqg349BookWorkers; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("多本书采集未启动")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) || active.Load() != 0 || saves.Load() != bqg349BookWorkers {
+			t.Fatalf("停止后仍处理书籍或未等待退出: active=%d calls=%d err=%v", active.Load(), saves.Load(), err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("停止信号未取消排队和在采书籍")
+	}
+}
+
+func TestBqg349BooksShareChapterDownloadLimit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	started := make(chan struct{}, bqg349ChapterWorkers*4)
+	attempted := make(chan struct{}, bqg349ChapterWorkers*4)
+	release := make(chan struct{})
+	var active, peak atomic.Int32
+	fetch := limitBqg349ChapterFetch(func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+		current := active.Add(1)
+		defer active.Add(-1)
+		for previous := peak.Load(); current > previous; previous = peak.Load() {
+			if peak.CompareAndSwap(previous, current) {
+				break
+			}
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+			return chapter.URL + "正文", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}, bqg349ChapterWorkers)
+	done := make(chan error, 2)
+	for book := 1; book <= 2; book++ {
+		bookDir := filepath.Join(dir, fmt.Sprint(book))
+		if err := os.MkdirAll(bookDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		catalog := filepath.Join(bookDir, "chapters.json")
+		if err := os.WriteFile(catalog, []byte("[]"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		var chapters []bqg349_service.Chapter
+		for i := 1; i <= bqg349ChapterWorkers+3; i++ {
+			chapters = append(chapters, bqg349_service.Chapter{Title: fmt.Sprintf("第%d章", i), URL: fmt.Sprintf("book-%d-chapter-%d", book, i)})
+		}
+		go func() {
+			path := func(title string) (string, error) { return filepath.Join(bookDir, title+".txt"), nil }
+			done <- saveBqg349Chapters(ctx, bookDir, chapters, catalog, path, func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+				attempted <- struct{}{}
+				return fetch(ctx, chapter)
+			}, false)
+		}()
+	}
+	for i := 0; i < bqg349ChapterWorkers*2; i++ {
+		select {
+		case <-attempted:
+		case <-ctx.Done():
+			t.Fatal("两本书未同时提交正文下载任务")
+		}
+	}
+	for i := 0; i < bqg349ChapterWorkers; i++ {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("正文下载未填满全局并发额度")
+		}
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-ctx.Done():
+			t.Fatal("共享下载额度造成阻塞")
+		}
+	}
+	if peak.Load() != bqg349ChapterWorkers || active.Load() != 0 {
+		t.Fatalf("正文并发随书籍数量叠加或协程未退出: peak=%d active=%d", peak.Load(), active.Load())
+	}
+	for book := 1; book <= 2; book++ {
+		catalog := filepath.Join(dir, fmt.Sprint(book), "chapters.json")
+		saved, err := chapter_service.GetChaptersByFile(catalog)
+		if err != nil || len(saved) != bqg349ChapterWorkers+3 {
+			t.Fatalf("多书章节目录不完整: book=%d count=%d err=%v", book, len(saved), err)
+		}
+		for i, record := range saved {
+			body, err := os.ReadFile(filepath.Join(dir, fmt.Sprint(book), record.ChapterName+".txt"))
+			if record.IsLess != 0 || record.Sort != i+1 || record.Id != int64(i+1) || err != nil || string(body) != fmt.Sprintf("book-%d-chapter-%d正文", book, i+1) {
+				t.Fatalf("多本书并发时串章或顺序错误: book=%d record=%+v body=%q err=%v", book, record, body, err)
+			}
+		}
+	}
+}
+
+func TestBqg349CancelWaitingForSharedDownloadSlot(t *testing.T) {
+	var calls atomic.Int32
+	started := make(chan struct{}, 1)
+	fetch := limitBqg349ChapterFetch(func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+		calls.Add(1)
+		if chapter.Title == "之后的请求" {
+			return "正文", nil
+		}
+		started <- struct{}{}
+		<-ctx.Done()
+		return "", ctx.Err()
+	}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	first := make(chan error, 1)
+	go func() {
+		_, err := fetch(ctx, bqg349_service.Chapter{Title: "占用额度"})
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("下载额度未被占用")
+	}
+	waitCtx, stopWaiting := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopWaiting()
+	if _, err := fetch(waitCtx, bqg349_service.Chapter{Title: "排队中"}); !errors.Is(err, context.DeadlineExceeded) || calls.Load() != 1 {
+		t.Fatalf("等待全局下载额度时无法取消: calls=%d err=%v", calls.Load(), err)
+	}
+	cancel()
+	select {
+	case err := <-first:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("占用额度的请求未取消: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("下载协程未释放额度")
+	}
+	nextCtx, stopNext := context.WithTimeout(context.Background(), time.Second)
+	defer stopNext()
+	if text, err := fetch(nextCtx, bqg349_service.Chapter{Title: "之后的请求"}); err != nil || text != "正文" || calls.Load() != 2 {
+		t.Fatalf("取消后泄漏了下载额度: text=%q calls=%d err=%v", text, calls.Load(), err)
+	}
+}
+
 // 使用当前连接上的临时表验证实际 MySQL 写入，不修改正式 mc_book 数据。
 func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 	if os.Getenv("BQG349_TEST_MYSQL") != "1" {
