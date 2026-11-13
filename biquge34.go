@@ -1,5 +1,5 @@
 /*
-@Descripttion: 使用 bqg349 动态接口补采已有小说，支持旧书源精确匹配和断点续采
+@Descripttion: 持续采集 bqg349 分类、书籍、章节，直接同步 mc_book 和章节文件
 @Author: red
 @Date: 2026-11-13
 @LastEditors: red
@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -29,95 +28,117 @@ import (
 	"go-novel/app/service/common/chapter_service"
 	"go-novel/db"
 	"go-novel/global"
+	"go-novel/utils"
 
 	"github.com/go-redis/redis/v8"
+	"gorm.io/gorm"
 )
 
 func main() {
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
-	bookID := flag.Int64("book-id", 3196, "本地小说 ID；0 表示补采所有 biquge34/bqg349 来源的小说")
-	bookURL := flag.String("book-url", "", "指定新站书籍链接，必须与本地书名、作者一致，仅用于单本补采")
-	refresh := flag.Bool("refresh", false, "忽略目录缓存，重新获取目录")
-	overwrite := flag.Bool("overwrite", false, "重新下载已有正文，用于修复旧采集内容")
-	flag.Parse()
-	if *bookID < 0 || (*bookID == 0 && *bookURL != "") {
-		log.Fatal("book-id 必须大于等于 0；book-url 必须同时指定单本 book-id")
-	}
 	client, err := bqg349_service.NewClient(bqg349_service.DefaultSite, bqg349_service.DefaultAPI)
 	if err != nil {
 		log.Fatal(err)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	db.InitDB() // 已同时初始化 MySQL 和 Redis；补采不需要启动 NSQ 消费者。
+	db.InitDB() // 已同时初始化 MySQL 和 Redis，书籍和章节由本脚本直接同步。
 	db.InitZapLog()
-	if err := collectBqg349Books(ctx, client, *bookID, *bookURL, *refresh, *overwrite); err != nil {
+	err = runBqg349Collector(ctx, 5*time.Minute, func(ctx context.Context) error {
+		return collectBqg349Site(ctx, client)
+	})
+	if ctx.Err() != nil {
+		log.Printf("收到停止信号，采集已退出: %v", err)
+		return
+	}
+	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func collectBqg349Books(ctx context.Context, client *bqg349_service.Client, bookID int64, bookURL string, refresh, overwrite bool) error {
-	var lastID int64
-	var processed, failed int
-	for {
+// runBqg349Collector 每轮重新扫描，失败也继续轮询；等待期间可被停止信号唤醒。
+func runBqg349Collector(ctx context.Context, interval time.Duration, collect func(context.Context) error) error {
+	if interval <= 0 {
+		return fmt.Errorf("采集间隔必须大于 0")
+	}
+	for round := 1; ; round++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		query := global.DB.WithContext(ctx).Model(&models.McBook{}).Order("id ASC").Limit(100)
-		if bookID > 0 {
-			query = query.Where("id = ?", bookID)
-		} else {
-			query = query.Where("id > ? AND (source_url LIKE ? OR source_url LIKE ?)", lastID, "%biquge34%", "%bqg349%")
+		log.Printf("开始第 %d 轮采集 %s", round, bqg349_service.DefaultSite)
+		err := collect(ctx)
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
 		}
-		var books []*models.McBook
-		if err := query.Find(&books).Error; err != nil {
-			return fmt.Errorf("查询待补采小说失败: %w", err)
+		if err != nil {
+			log.Printf("本轮采集未全部完成，下一轮自动重试: %v", err)
 		}
-		if len(books) == 0 {
-			break
+		log.Printf("第 %d 轮结束，%s 后继续采集新书和新章节", round, interval)
+		timer := time.NewTimer(interval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
 		}
+	}
+}
+
+func collectBqg349Site(ctx context.Context, client *bqg349_service.Client) error {
+	return walkBqg349Site(ctx, client, func(ctx context.Context, book *bqg349_service.Book) error {
+		return syncBqg349Book(ctx, client, book)
+	})
+}
+
+func walkBqg349Site(ctx context.Context, client *bqg349_service.Client, save func(context.Context, *bqg349_service.Book) error) error {
+	seen := make(map[bqg349_service.ID]bool)
+	var processed, failed int
+	for _, category := range client.Categories() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		books, err := client.Books(ctx, category.URL)
+		if err != nil {
+			failed++
+			log.Printf("获取分类失败 category=%s: %v", category.Name, err)
+			continue
+		}
+		log.Printf("分类 %s 获取到 %d 本书", category.Name, len(books))
 		for _, book := range books {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if seen[book.ID] {
+				continue
+			}
+			seen[book.ID] = true
 			processed++
-			lastID = book.Id
-			if err := collectBqg349Book(ctx, client, book, bookURL, refresh, overwrite); err != nil {
+			detail, err := client.Book(ctx, book.URL)
+			if err == nil {
+				err = save(ctx, detail)
+			}
+			if err != nil {
 				if ctx.Err() != nil {
 					return err
 				}
 				failed++
-				log.Printf("补采失败 id=%d book=%q author=%q: %v", book.Id, book.BookName, book.Author, err)
+				log.Printf("采集失败 source-id=%d book=%q author=%q: %v", book.ID, book.Title, book.Author, err)
 			}
 		}
-		if bookID > 0 {
-			break
-		}
 	}
-	if processed == 0 {
-		return fmt.Errorf("未找到待补采小说 book-id=%d", bookID)
-	}
-	log.Printf("补采结束 total=%d success=%d failed=%d", processed, processed-failed, failed)
+	log.Printf("本轮结束 books=%d failures=%d", processed, failed)
 	if failed > 0 {
-		return fmt.Errorf("%d 本小说补采失败，可重新运行续采", failed)
+		return fmt.Errorf("本轮有 %d 项采集失败，已完成进度保留", failed)
 	}
 	return nil
 }
 
-func collectBqg349Book(ctx context.Context, client *bqg349_service.Client, local *models.McBook, explicitURL string, refresh, overwrite bool) (err error) {
-	var book *bqg349_service.Book
-	if explicitURL != "" {
-		book, err = client.Book(ctx, explicitURL)
-	} else if strings.HasPrefix(local.SourceUrl, bqg349_service.DefaultSite+"/#/book/") {
-		book, err = client.Book(ctx, local.SourceUrl)
-	} else {
-		// 老站编号与新站不同，禁止只替换域名拼接 URL。
-		book, err = client.FindBook(ctx, local.BookName, local.Author)
-	}
+func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bqg349_service.Book) (err error) {
+	local, err := saveBqg349Book(ctx, global.DB, book)
 	if err != nil {
 		return err
 	}
-	if book.Title != strings.TrimSpace(local.BookName) || book.Author != strings.TrimSpace(local.Author) {
-		return fmt.Errorf("新站书名或作者不匹配: %q / %q", book.Title, book.Author)
-	}
-	chapters, err := bqg349Chapters(ctx, client, book, refresh)
+	chapters, err := bqg349Chapters(ctx, client, book, false)
 	if err != nil {
 		return err
 	}
@@ -129,8 +150,91 @@ func collectBqg349Book(ctx context.Context, client *bqg349_service.Client, local
 		_, path, err := book_service.GetChapterTxtFile(local.BookName, local.Author, title)
 		return path, err
 	}
-	log.Printf("开始补采 id=%d book=%q url=%s chapters=%d", local.Id, local.BookName, book.URL, len(chapters))
-	return saveBqg349Chapters(ctx, chapters, chapterFile, chapterPath, client.ChapterText, overwrite)
+	defer func() {
+		// 采集失败或手动停止时，也把已经保存的章节进度同步回 mc_book。
+		progressCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err = errors.Join(err, saveBqg349BookProgress(progressCtx, global.DB, local, chapterFile))
+	}()
+	log.Printf("开始采集 local-id=%d source-id=%d book=%q chapters=%d", local.Id, book.ID, local.BookName, len(chapters))
+	return saveBqg349Chapters(ctx, chapters, chapterFile, chapterPath, client.ChapterText, false)
+}
+
+// saveBqg349Book 按书名和作者查重；空库直接新增，后续更新同一条书籍记录。
+func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service.Book) (*models.McBook, error) {
+	if book == nil || book.ID <= 0 || book.Title == "" || book.Author == "" || book.URL == "" {
+		return nil, fmt.Errorf("书籍信息不完整，无法入库")
+	}
+	var local models.McBook
+	err := database.WithContext(ctx).Where("book_name = ? AND author = ?", book.Title, book.Author).Take(&local).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	serialize := 1 // 沿用原采集程序：1 连载，2 完结。
+	if strings.Contains(book.Status, "完") {
+		serialize = 2
+	}
+	now := time.Now().Unix()
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		local = models.McBook{BookName: book.Title, Author: book.Author, BookType: 1, Addtime: now}
+		if strings.Contains(book.Category, "女生") {
+			local.BookType = 2
+		}
+		// 沿用本地分类配置，不写死分类 ID。
+		var class models.McBookClass
+		if classErr := database.WithContext(ctx).Where("class_name IN ?", []string{book.Category, book.Category + "小说"}).Take(&class).Error; classErr == nil {
+			local.Cid, local.ClassName = class.Id, class.ClassName
+			if class.BookType > 0 {
+				local.BookType = class.BookType
+			}
+		}
+		if err := database.WithContext(ctx).Create(&local).Error; err != nil {
+			return nil, fmt.Errorf("新增 mc_book 失败: %w", err)
+		}
+		log.Printf("新书入库 local-id=%d source-id=%d book=%q author=%q", local.Id, book.ID, book.Title, book.Author)
+	}
+	data := map[string]any{
+		"source_url": book.URL, "category_name": book.Category, "desc": book.Intro,
+		"serialize": serialize, "last_chapter_title": book.LastChapter,
+		"last_chapter_time": utils.DateToUnix(book.LastUpdate), "uptime": now,
+	}
+	if local.Pic == "" {
+		data["pic"] = book.CoverURL
+	}
+	if err := database.WithContext(ctx).Model(&models.McBook{}).Where("id = ?", local.Id).Updates(data).Error; err != nil {
+		return nil, fmt.Errorf("更新 mc_book 失败: %w", err)
+	}
+	return &local, nil
+}
+
+func saveBqg349BookProgress(ctx context.Context, database *gorm.DB, book *models.McBook, chapterFile string) error {
+	chapters, err := chapter_service.GetChaptersByFile(chapterFile)
+	if err != nil {
+		return err
+	}
+	var last *models.McBookChapter
+	var total int
+	for _, chapter := range chapters {
+		if chapter == nil {
+			return fmt.Errorf("本地目录存在空章节，停止更新书籍进度")
+		}
+		total += chapter.TextNum
+		if last == nil || chapter.Sort > last.Sort {
+			last = chapter
+		}
+	}
+	if last == nil {
+		return nil
+	}
+	data := map[string]any{
+		"chapter_num": len(chapters), "text_num": total,
+		"update_chapter_id": last.Id, "update_chapter_title": last.ChapterName,
+		"update_chapter_time": time.Now().Unix(), "uptime": time.Now().Unix(),
+	}
+	if book.ChapterNum == 0 {
+		data["status"] = 1
+	}
+	return database.WithContext(ctx).Model(&models.McBook{}).Where("id = ?", book.Id).Updates(data).Error
 }
 
 func saveBqg349Chapters(ctx context.Context, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) (err error) {
