@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go-novel/app/models"
 	"go-novel/db"
 	"go-novel/global"
@@ -22,6 +23,7 @@ func main() {
 		return
 	}
 	for _, book := range books {
-
+		fmt.Println(book)
 	}
+	fmt.Printf("books len:%d\n", len(books))
 }
