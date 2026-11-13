@@ -1,9 +1,10 @@
 package api_routes
 
 import (
-	"github.com/gin-gonic/gin"
 	"go-novel/app/controller/api"
 	"go-novel/middleware"
+
+	"github.com/gin-gonic/gin"
 )
 
 func initCommonRoutes(r *gin.RouterGroup) gin.IRoutes {
@@ -18,6 +19,7 @@ func initCommonRoutes(r *gin.RouterGroup) gin.IRoutes {
 		common.GET("/chaojihuiStatistics", commonApi.ChaojihuiStatistics)        //神马平台统计
 		common.POST("/vivoCallbackClk", commonApi.VivoCallBackClk)               //vivo 点击检测回传
 		common.GET("/vivoCallbackClk", commonApi.VivoCallBackClk)                //vivo 点击检测回传
+		common.GET("/goTest", commonApi.GoTest)                                  //测试接口
 	}
 	return r
 }

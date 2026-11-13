@@ -3,16 +3,18 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"go-novel/app/models"
 	"go-novel/app/service/common/common_service"
 	"go-novel/app/service/common/upload_service"
 	"go-novel/global"
+	"go-novel/internal/debugger"
 	"go-novel/pkg/config"
 	"go-novel/utils"
 	"go-novel/utils/e"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Common struct{}
@@ -36,6 +38,20 @@ func (common *Common) UploadImg(c *gin.Context) {
 	}
 	utils.Success(c, res, "ok")
 	return
+}
+
+func (common *Common) GoTest(c *gin.Context) {
+	//var req []models.ClassListReq
+	//if err := c.ShouldBindJSON(&req); err != nil {
+	//	utils.FailEncrypt(c,err,"error")
+	//	return
+	//}
+	m := make(map[string]interface{})
+	m["aaa"] = 1
+	m["bbb"] = 334
+	m["ccc"] = "324"
+	debugger.Hang("调试数据", m)
+	utils.Success(c, m, "ok")
 }
 
 // vivo点击检测回传
