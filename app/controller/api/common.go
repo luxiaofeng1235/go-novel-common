@@ -51,6 +51,7 @@ func (common *Common) GoTest(c *gin.Context) {
 	m["bbb"] = 334
 	m["ccc"] = "324"
 	debugger.Hang("调试数据", m)
+	return
 	utils.Success(c, m, "ok")
 }
 

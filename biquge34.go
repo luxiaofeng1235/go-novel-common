@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
 	"go-novel/app/models"
 	"go-novel/app/service/common/book_service"
 	"go-novel/app/service/common/chapter_service"
@@ -13,6 +12,8 @@ import (
 	"go-novel/utils"
 	"log"
 	"strings"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 	db.InitZapLog()
 	db.InitNsqProducer()
 	db.InitNsqConsumer()
+	//https://www.bqg349.xyz/#/ 参考这个流程进行
 	//bookUrl := "https://www.biquge34.net/article/111930/"
 	//bookName := "农门医妻"
 	//author := "林十五"
