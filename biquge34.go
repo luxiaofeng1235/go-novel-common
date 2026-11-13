@@ -52,7 +52,12 @@ func main() {
 	db.InitDB() // 已同时初始化 MySQL 和 Redis，书籍和章节由本脚本直接同步。
 	db.InitZapLog()
 	err = runBqg349Collector(ctx, 5*time.Minute, func(ctx context.Context) error {
-		return collectBqg349Site(ctx, client)
+		// 多本书共享 20 个正文下载额度。
+		fetch := limitBqg349ChapterFetch(client.ChapterText, bqg349ChapterWorkers)
+		log.Printf("批量采集并发配置 book-workers=%d chapter-workers-total=%d", bqg349BookWorkers, bqg349ChapterWorkers)
+		return walkBqg349Site(ctx, client, func(ctx context.Context, book *bqg349_service.Book) error {
+			return syncBqg349Book(ctx, client, book, fetch)
+		})
 	})
 	if ctx.Err() != nil {
 		log.Printf("收到停止信号，采集已退出: %v", err)
@@ -89,15 +94,6 @@ func runBqg349Collector(ctx context.Context, interval time.Duration, collect fun
 			return ctx.Err()
 		}
 	}
-}
-
-func collectBqg349Site(ctx context.Context, client *bqg349_service.Client) error {
-	// 多本书共享正文下载额度，不能把每本书的 20 个协程叠成无上限并发。
-	fetch := limitBqg349ChapterFetch(client.ChapterText, bqg349ChapterWorkers)
-	log.Printf("批量采集并发配置 book-workers=%d chapter-workers-total=%d", bqg349BookWorkers, bqg349ChapterWorkers)
-	return walkBqg349Site(ctx, client, func(ctx context.Context, book *bqg349_service.Book) error {
-		return syncBqg349Book(ctx, client, book, fetch)
-	})
 }
 
 type bqg349SiteClient interface {
@@ -208,7 +204,7 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 	if err != nil {
 		return err
 	}
-	chapters, err := bqg349Chapters(ctx, client, book, false)
+	chapters, err := bqg349Chapters(ctx, client, book)
 	if err != nil {
 		return err
 	}
@@ -230,7 +226,7 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 		}
 	}()
 	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q cid=%d class=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, local.Cid, local.ClassName, len(chapters), bqg349ChapterWorkers)
-	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, fetch, false)
+	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, fetch)
 }
 
 // bqg349ClassCandidates 兼容书源分类简称和本地展示名称，不写死数据库 ID。
@@ -421,7 +417,7 @@ func saveBqg349BookProgress(ctx context.Context, database *gorm.DB, book *models
 }
 
 // saveBqg349Chapters 先保存完整目录，再按目录 URL 并发获取正文。
-func saveBqg349Chapters(ctx context.Context, bookName string, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) (err error) {
+func saveBqg349Chapters(ctx context.Context, bookName string, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error)) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -518,7 +514,7 @@ func saveBqg349Chapters(ctx context.Context, bookName string, chapters []bqg349_
 		}
 		batch := chapters[start:end]
 		previousDownloaded := downloaded
-		results := downloadBqg349Batch(ctx, batch, index, chapterPath, fetch, overwrite)
+		results := downloadBqg349Batch(ctx, batch, index, chapterPath, fetch)
 		var batchErr error
 		for i, chapter := range batch {
 			result := results[i]
@@ -559,7 +555,7 @@ type bqg349DownloadResult struct {
 }
 
 // downloadBqg349Batch 最多使用 20 个协程；批内目录只读，JSON 由主协程保存。
-func downloadBqg349Batch(ctx context.Context, chapters []bqg349_service.Chapter, index map[string]*models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) []bqg349DownloadResult {
+func downloadBqg349Batch(ctx context.Context, chapters []bqg349_service.Chapter, index map[string]*models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error)) []bqg349DownloadResult {
 	results := make([]bqg349DownloadResult, len(chapters))
 	jobs := make(chan int)
 	workers := bqg349ChapterWorkers
@@ -573,7 +569,7 @@ func downloadBqg349Batch(ctx context.Context, chapters []bqg349_service.Chapter,
 			defer wg.Done()
 			for i := range jobs {
 				chapter := chapters[i]
-				results[i] = downloadBqg349Chapter(ctx, chapter, index[chapter.Title], chapterPath, fetch, overwrite)
+				results[i] = downloadBqg349Chapter(ctx, chapter, index[chapter.Title], chapterPath, fetch)
 			}
 		}()
 	}
@@ -585,7 +581,7 @@ func downloadBqg349Batch(ctx context.Context, chapters []bqg349_service.Chapter,
 	return results
 }
 
-func downloadBqg349Chapter(ctx context.Context, chapter bqg349_service.Chapter, record *models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) bqg349DownloadResult {
+func downloadBqg349Chapter(ctx context.Context, chapter bqg349_service.Chapter, record *models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error)) bqg349DownloadResult {
 	if err := ctx.Err(); err != nil {
 		return bqg349DownloadResult{err: err}
 	}
@@ -600,7 +596,7 @@ func downloadBqg349Chapter(ctx context.Context, chapter bqg349_service.Chapter, 
 	textNum := utf8.RuneCount(text)
 	// 新目录里的待下载标记不应触发重复下载已完整落盘、尚未更新 JSON 的 TXT。
 	incomplete := record != nil && (record.TextNum > textNum || (record.IsLess != 0 && record.TextNum > 0))
-	if !overwrite && !incomplete && utf8.Valid(text) && strings.TrimSpace(string(text)) != "" {
+	if !incomplete && utf8.Valid(text) && strings.TrimSpace(string(text)) != "" {
 		return bqg349DownloadResult{textNum: textNum}
 	}
 	body, err := fetch(ctx, chapter)
@@ -657,28 +653,26 @@ type bqg349ChapterCache struct {
 	Chapters      []bqg349_service.Chapter
 }
 
-func bqg349Chapters(ctx context.Context, client *bqg349_service.Client, book *bqg349_service.Book, refresh bool) ([]bqg349_service.Chapter, error) {
+func bqg349Chapters(ctx context.Context, client *bqg349_service.Client, book *bqg349_service.Book) ([]bqg349_service.Chapter, error) {
 	key := fmt.Sprintf("%s:chapters:v1:%d", client.CachePrefix(), book.ID)
-	if !refresh {
-		data, err := global.Redis.Get(ctx, key).Bytes()
-		if err == nil {
-			var cached bqg349ChapterCache
-			if json.Unmarshal(data, &cached) == nil && cached.DirectoryID == book.DirectoryID && cached.LastChapterID == book.LastChapterID && cached.LastChapter == book.LastChapter && cached.LastUpdate == book.LastUpdate && len(cached.Chapters) > 0 {
-				return cached.Chapters, nil
-			}
-		} else if !errors.Is(err, redis.Nil) {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			log.Printf("目录缓存读取失败，将直接获取: %v", err)
+	data, err := global.Redis.Get(ctx, key).Bytes()
+	if err == nil {
+		var cached bqg349ChapterCache
+		if json.Unmarshal(data, &cached) == nil && cached.DirectoryID == book.DirectoryID && cached.LastChapterID == book.LastChapterID && cached.LastChapter == book.LastChapter && cached.LastUpdate == book.LastUpdate && len(cached.Chapters) > 0 {
+			return cached.Chapters, nil
 		}
+	} else if !errors.Is(err, redis.Nil) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		log.Printf("目录缓存读取失败，将直接获取: %v", err)
 	}
 	chapters, err := client.Chapters(ctx, book)
 	if err != nil {
 		return nil, err
 	}
 	cached := bqg349ChapterCache{DirectoryID: book.DirectoryID, LastChapterID: book.LastChapterID, LastChapter: book.LastChapter, LastUpdate: book.LastUpdate, Chapters: chapters}
-	data, err := json.Marshal(cached)
+	data, err = json.Marshal(cached)
 	if err != nil {
 		return nil, err
 	}

@@ -101,7 +101,7 @@ func TestSourceFlowWithAliasDirectory(t *testing.T) {
 	if chapters[2].URL != DefaultSite+"/#/book/2530/3.html" {
 		t.Fatalf("章节序号错误: %+v", chapters)
 	}
-	text, err := client.Text(ctx, chapters[0].URL)
+	text, err := client.ChapterText(ctx, chapters[0])
 	if err != nil || text != "正文 http 示例，保留英文 words 和标点。\n第二段。" {
 		t.Fatalf("text = %q, err = %v", text, err)
 	}
@@ -126,7 +126,7 @@ func TestInvalidResponses(t *testing.T) {
 			}))
 			defer server.Close()
 			client, _ := NewClient(DefaultSite, server.URL)
-			if text, err := client.Text(context.Background(), DefaultSite+"/#/book/2530/1.html"); err == nil || text != "" {
+			if text, err := client.ChapterText(context.Background(), Chapter{Title: "第一章", URL: DefaultSite + "/#/book/2530/1.html"}); err == nil || text != "" {
 				t.Fatalf("错误响应被当成正文: %q, %v", text, err)
 			}
 		})
@@ -136,7 +136,7 @@ func TestInvalidResponses(t *testing.T) {
 func TestInvalidLinksAndCancellation(t *testing.T) {
 	client, _ := NewClient(DefaultSite, DefaultAPI)
 	for _, link := range []string{"https://other.example/#/book/2530/1.html", DefaultSite + "/#/book/0/1.html", DefaultSite + "/#/book/2530/1_2.html", DefaultSite + "/#/book/2530/"} {
-		if _, err := client.Text(context.Background(), link); err == nil {
+		if _, err := client.ChapterText(context.Background(), Chapter{Title: "第一章", URL: link}); err == nil {
 			t.Errorf("接受了无效章节地址: %s", link)
 		}
 	}
@@ -144,53 +144,6 @@ func TestInvalidLinksAndCancellation(t *testing.T) {
 	cancel()
 	if _, err := client.Book(ctx, DefaultSite+"/#/book/2530/"); err == nil || !strings.Contains(err.Error(), "context canceled") {
 		t.Fatalf("取消请求未生效: %v", err)
-	}
-}
-
-func TestFindBookRequiresUniqueIdentity(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		books  string
-		detail string
-		wantOK bool
-	}{
-		{"exact match", `[{"id":2,"title":"测试书番外","author":"作者"},{"id":3,"title":"测试书","author":"另一作者"},{"id":2530,"title":" 测试书 ","author":"作者"}]`, "", true},
-		{"duplicate result", `[{"id":2530,"title":"测试书","author":"作者"},{"id":2530,"title":"测试书","author":"作者"}]`, "", true},
-		{"ambiguous", `[{"id":2530,"title":"测试书","author":"作者"},{"id":2531,"title":"测试书","author":"作者"}]`, "", false},
-		{"different author", `[{"id":2530,"title":"测试书","author":"另一作者"}]`, "", false},
-		{"missing", `[]`, "", false},
-		{"changed detail", `[{"id":2530,"title":"测试书","author":"作者"}]`, "另一作者", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch r.URL.Path {
-				case "/api/search":
-					if r.URL.Query().Get("q") != "测试书" {
-						t.Error("搜索关键词未正确传递")
-					}
-					fmt.Fprintf(w, `{"data":%s}`, tc.books)
-				case "/api/book":
-					author := tc.detail
-					if author == "" {
-						author = "作者"
-					}
-					fmt.Fprintf(w, `{"id":2530,"dirid":99,"title":"测试书","author":%q}`, author)
-				default:
-					http.NotFound(w, r)
-				}
-			}))
-			defer server.Close()
-			client, _ := NewClient(DefaultSite, server.URL)
-			client.interval = 0
-			book, err := client.FindBook(context.Background(), " 测试书 ", "作者")
-			if tc.wantOK {
-				if err != nil || book == nil || book.ID != 2530 || book.DirectoryID != 99 {
-					t.Fatalf("book = %+v, err = %v", book, err)
-				}
-			} else if err == nil || book != nil {
-				t.Fatalf("不明确的书籍被接受: %+v, %v", book, err)
-			}
-		})
 	}
 }
 
@@ -237,7 +190,7 @@ func TestRequestRetryPolicy(t *testing.T) {
 			defer server.Close()
 			client, _ := NewClient(DefaultSite, server.URL)
 			client.interval = 0
-			text, err := client.Text(context.Background(), DefaultSite+"/#/book/2530/1.html")
+			text, err := client.ChapterText(context.Background(), Chapter{Title: "第一章", URL: DefaultSite + "/#/book/2530/1.html"})
 			if attempts.Load() != tc.attempts || (err == nil) != tc.wantOK {
 				t.Fatalf("attempts = %d, text = %q, err = %v", attempts.Load(), text, err)
 			}
@@ -270,7 +223,7 @@ func TestCancelWhileWaiting(t *testing.T) {
 		client, _ := NewClient(DefaultSite, server.URL)
 		response := make(chan error, 1)
 		go func() {
-			_, err := client.Text(ctx, DefaultSite+"/#/book/2530/1.html")
+			_, err := client.ChapterText(ctx, Chapter{Title: "第一章", URL: DefaultSite + "/#/book/2530/1.html"})
 			response <- err
 		}()
 		deadline := time.NewTimer(2 * time.Second)
@@ -304,7 +257,7 @@ func TestRateLimitCooldownIsShared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Text(context.Background(), DefaultSite+"/#/book/2530/1.html"); err == nil {
+	if _, err := client.ChapterText(context.Background(), Chapter{Title: "第一章", URL: DefaultSite + "/#/book/2530/1.html"}); err == nil {
 		t.Fatal("限流响应未报错")
 	}
 	client.mu.Lock()
@@ -315,7 +268,7 @@ func TestRateLimitCooldownIsShared(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err := client.Text(ctx, DefaultSite+"/#/book/2530/2.html"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := client.ChapterText(ctx, Chapter{Title: "第二章", URL: DefaultSite + "/#/book/2530/2.html"}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("冷却期间无法取消等待: %v", err)
 	}
 	if attempts.Load() != 1 {

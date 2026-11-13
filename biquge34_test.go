@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go-novel/app/models"
 	"go-novel/app/service/collect/bqg349_service"
@@ -261,7 +262,7 @@ func TestBqg349BooksShareChapterDownloadLimit(t *testing.T) {
 			done <- saveBqg349Chapters(ctx, bookDir, chapters, catalog, path, func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
 				attempted <- struct{}{}
 				return fetch(ctx, chapter)
-			}, false)
+			})
 		}()
 	}
 	for i := 0; i < bqg349ChapterWorkers*2; i++ {
@@ -585,7 +586,7 @@ func TestBqg349SaveResumeAndOrder(t *testing.T) {
 		fetched = append(fetched, chapter.Title)
 		return body, nil
 	}
-	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := chapter_service.GetChaptersByFile(catalog)
@@ -603,7 +604,7 @@ func TestBqg349SaveResumeAndOrder(t *testing.T) {
 	if err != nil || string(content) != body || !reflect.DeepEqual(fetched, []string{"第二章"}) {
 		t.Fatalf("正文或下载列表有误: %q, %v, %v", content, fetched, err)
 	}
-	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch); err != nil {
 		t.Fatal(err)
 	}
 	if len(fetched) != 1 {
@@ -626,7 +627,7 @@ func TestBqg349SaveCheckpointOnFailure(t *testing.T) {
 		}
 		return "第一章正文", nil
 	}
-	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); !errors.Is(err, failed) {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch); !errors.Is(err, failed) {
 		t.Fatalf("未传递错误: %v", err)
 	}
 	saved, err := chapter_service.GetChaptersByFile(catalog)
@@ -643,7 +644,7 @@ func TestBqg349SaveCheckpointOnFailure(t *testing.T) {
 		}
 		return "短公告", nil
 	}
-	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch); err != nil {
 		t.Fatal(err)
 	}
 	saved, err = chapter_service.GetChaptersByFile(catalog)
@@ -701,7 +702,7 @@ func TestBqg349ConcurrentDownloadOrderAndResume(t *testing.T) {
 		return chapter.Title + "正文", nil
 	}
 	done := make(chan error, 1)
-	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch, false) }()
+	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch) }()
 	for i := 0; i < bqg349ChapterWorkers; i++ {
 		select {
 		case <-started:
@@ -735,7 +736,7 @@ func TestBqg349ConcurrentDownloadOrderAndResume(t *testing.T) {
 	if err := saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, func(context.Context, bqg349_service.Chapter) (string, error) {
 		t.Error("完整正文不应重复下载")
 		return "", errors.New("重复下载")
-	}, false); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -763,7 +764,7 @@ func TestBqg349CancelConcurrentDownloads(t *testing.T) {
 		return "", ctx.Err()
 	}
 	done := make(chan error, 1)
-	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch, false) }()
+	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch) }()
 	for i := 0; i < bqg349ChapterWorkers; i++ {
 		select {
 		case <-started:
@@ -822,11 +823,16 @@ func TestBqg349ChapterOrder(t *testing.T) {
 	}
 }
 
-func TestBqg349FailedOverwritePreservesText(t *testing.T) {
+func TestBqg349FailedRepairPreservesText(t *testing.T) {
 	dir := t.TempDir()
 	catalog, textFile := filepath.Join(dir, "chapters.json"), filepath.Join(dir, "chapter.txt")
 	original := []byte("原正文，保留 English 和标点。")
-	if err := os.WriteFile(catalog, []byte("[]"), 0644); err != nil {
+	// 本地正文比目录记录短，需要补采；失败时保留现有文件。
+	records, err := json.Marshal([]*models.McBookChapter{{Id: 1, Sort: 1, ChapterName: "第一章", ChapterLink: "first", TextNum: utf8.RuneCount(original) + 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(catalog, records, 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(textFile, original, 0640); err != nil {
@@ -835,8 +841,8 @@ func TestBqg349FailedOverwritePreservesText(t *testing.T) {
 	chapters := []bqg349_service.Chapter{{Title: "第一章", URL: "first"}}
 	path := func(string) (string, error) { return textFile, nil }
 	fetch := func(context.Context, bqg349_service.Chapter) (string, error) { return "", errors.New("下载失败") }
-	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, true); err == nil {
-		t.Fatal("覆盖失败未返回错误")
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch); err == nil {
+		t.Fatal("补采失败未返回错误")
 	}
 	content, err := os.ReadFile(textFile)
 	if err != nil || string(content) != string(original) {

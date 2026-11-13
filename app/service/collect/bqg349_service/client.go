@@ -133,68 +133,21 @@ func (c *Client) Books(ctx context.Context, categoryURL string) ([]Book, error) 
 	if key == "" {
 		return nil, fmt.Errorf("未知分类地址 %q", categoryURL)
 	}
-	return c.books(ctx, "sort", url.Values{"sort": {key}})
-}
-
-// Search 使用站点公开搜索接口；旧站编号不能直接当作新站编号。
-func (c *Client) Search(ctx context.Context, keyword string) ([]Book, error) {
-	keyword = strings.TrimSpace(keyword)
-	if keyword == "" {
-		return nil, fmt.Errorf("搜索关键词为空")
-	}
-	return c.books(ctx, "search", url.Values{"q": {keyword}})
-}
-
-// FindBook 只接受书名和作者均一致的唯一结果，避免同名书或别名书串书。
-func (c *Client) FindBook(ctx context.Context, title, author string) (*Book, error) {
-	title, author = strings.TrimSpace(title), strings.TrimSpace(author)
-	if title == "" || author == "" {
-		return nil, fmt.Errorf("书名或作者为空")
-	}
-	books, err := c.Search(ctx, title)
-	if err != nil {
-		return nil, err
-	}
-	var match *Book
-	for i := range books {
-		book := &books[i]
-		if book.Title != title || book.Author != author {
-			continue
-		}
-		if match != nil && match.ID != book.ID {
-			return nil, fmt.Errorf("书籍 %q 作者 %q 在新站有多个匹配，请指定书籍链接", title, author)
-		}
-		match = book
-	}
-	if match == nil {
-		return nil, fmt.Errorf("新站未找到书名和作者完全匹配的书籍: %q / %q", title, author)
-	}
-	book, err := c.Book(ctx, match.URL)
-	if err != nil {
-		return nil, err
-	}
-	if book.Title != title || book.Author != author {
-		return nil, fmt.Errorf("书籍详情与搜索结果不一致: %q / %q", book.Title, book.Author)
-	}
-	return book, nil
-}
-
-func (c *Client) books(ctx context.Context, endpoint string, query url.Values) ([]Book, error) {
 	var result struct {
 		Data *[]Book `json:"data"`
 	}
-	if err := c.get(ctx, endpoint, query, &result); err != nil {
+	if err := c.get(ctx, "sort", url.Values{"sort": {key}}, &result); err != nil {
 		return nil, err
 	}
 	if result.Data == nil {
-		return nil, fmt.Errorf("%s 接口缺少 data 列表", endpoint)
+		return nil, fmt.Errorf("sort 接口缺少 data 列表")
 	}
 	for i := range *result.Data {
 		book := &(*result.Data)[i]
 		book.Title = strings.TrimSpace(book.Title)
 		book.Author = strings.TrimSpace(book.Author)
 		if book.ID <= 0 || book.Title == "" || book.Author == "" {
-			return nil, fmt.Errorf("%s 接口第 %d 本书的信息不完整", endpoint, i+1)
+			return nil, fmt.Errorf("sort 接口第 %d 本书的信息不完整", i+1)
 		}
 		book.URL = c.bookURL(book.ID)
 		book.CoverURL = c.coverURL(book.ID)
@@ -258,22 +211,15 @@ func (c *Client) Chapters(ctx context.Context, book *Book) ([]Chapter, error) {
 	return chapters, nil
 }
 
-func (c *Client) Text(ctx context.Context, link string) (string, error) {
-	return c.text(ctx, link, "")
-}
-
 // ChapterText 校验目录标题，避免目录缓存过期后把其他章节正文写入旧标题。
 func (c *Client) ChapterText(ctx context.Context, chapter Chapter) (string, error) {
-	if strings.TrimSpace(chapter.Title) == "" {
+	expectedTitle := strings.TrimSpace(chapter.Title)
+	if expectedTitle == "" {
 		return "", fmt.Errorf("章节标题为空")
 	}
-	return c.text(ctx, chapter.URL, strings.TrimSpace(chapter.Title))
-}
-
-func (c *Client) text(ctx context.Context, link, expectedTitle string) (string, error) {
-	id, chapterID, err := c.parseLink(link)
+	id, chapterID, err := c.parseLink(chapter.URL)
 	if err != nil || chapterID <= 0 {
-		return "", fmt.Errorf("无效的章节地址 %q", link)
+		return "", fmt.Errorf("无效的章节地址 %q", chapter.URL)
 	}
 	query, err := tokenQuery(struct {
 		ID        ID `json:"id"`
@@ -295,7 +241,7 @@ func (c *Client) text(ctx context.Context, link, expectedTitle string) (string, 
 	if result.ID != id || result.ChapterID != chapterID || strings.TrimSpace(result.Title) == "" || text == "" {
 		return "", fmt.Errorf("书籍 %d 第 %d 章返回空正文或编号不匹配", id, chapterID)
 	}
-	if expectedTitle != "" && strings.TrimSpace(result.Title) != expectedTitle {
+	if strings.TrimSpace(result.Title) != expectedTitle {
 		return "", fmt.Errorf("书籍 %d 第 %d 章标题已变化，目录为 %q，正文为 %q，请刷新目录", id, chapterID, expectedTitle, result.Title)
 	}
 	return text, nil
