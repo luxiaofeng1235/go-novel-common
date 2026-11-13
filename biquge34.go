@@ -225,8 +225,70 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 			log.Printf("整本同步完成 local-id=%d book=%q chapters=%d", local.Id, local.BookName, len(chapters))
 		}
 	}()
+	complete, err := bqg349BookComplete(ctx, book.Status, chapters, chapterFile, chapterPath)
+	if err != nil {
+		return err
+	}
+	if complete {
+		log.Printf("已完结且采集完整，跳过采集 local-id=%d book=%q local=%d remote=%d", local.Id, local.BookName, len(chapters), len(chapters))
+		return nil
+	}
 	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q cid=%d class=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, local.Cid, local.ClassName, len(chapters), bqg349ChapterWorkers)
 	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, fetch)
+}
+
+func bqg349IsFinished(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "完结", "已完结", "完本", "已完本", "完成", "已完成":
+		return true
+	default:
+		return false
+	}
+}
+
+// bqg349BookComplete 复用落盘的章节完成标记；只读目录和文件属性，不读取正文。
+func bqg349BookComplete(ctx context.Context, status string, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error)) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !bqg349IsFinished(status) || len(chapters) == 0 {
+		return false, nil
+	}
+	records, err := chapter_service.GetChaptersByFile(chapterFile)
+	if err != nil {
+		return false, err
+	}
+	if len(records) != len(chapters) {
+		return false, nil
+	}
+	seen := make(map[string]bool, len(chapters))
+	for i, chapter := range chapters {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		record := records[i]
+		if chapter.Title == "" || chapter.URL == "" || seen[chapter.Title] || record == nil ||
+			record.ChapterName != chapter.Title || record.ChapterLink != chapter.URL ||
+			record.Sort != i+1 || record.IsLess != 0 || record.TextNum <= 0 {
+			return false, nil
+		}
+		seen[chapter.Title] = true
+		path, err := chapterPath(chapter.Title)
+		if err != nil {
+			return false, err
+		}
+		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !info.Mode().IsRegular() || info.Size() < int64(record.TextNum) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // bqg349ClassCandidates 兼容书源分类简称和本地展示名称，不写死数据库 ID。
@@ -320,7 +382,7 @@ func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service
 		return nil, err
 	}
 	serialize := 1 // 沿用原采集程序：1 连载，2 完结。
-	if strings.Contains(book.Status, "完") {
+	if bqg349IsFinished(book.Status) {
 		serialize = 2
 	}
 	now := time.Now().Unix()

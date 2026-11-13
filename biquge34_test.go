@@ -559,6 +559,109 @@ func TestBqg349CollectorStopsDuringWait(t *testing.T) {
 	}
 }
 
+func TestBqg349FinishedStatus(t *testing.T) {
+	for _, status := range []string{"完结", "已完结", "完本", "已完本", "完成", " 已完成 "} {
+		if !bqg349IsFinished(status) {
+			t.Errorf("完结状态未识别: %q", status)
+		}
+	}
+	for _, status := range []string{"", "连载", "连载中", "未完结", "未完成"} {
+		if bqg349IsFinished(status) {
+			t.Errorf("未完结状态被误判: %q", status)
+		}
+	}
+}
+
+func TestBqg349CompletedBookAndMissingChapterRecovery(t *testing.T) {
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "chapters.json")
+	if err := os.WriteFile(catalog, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chapters := []bqg349_service.Chapter{{Title: "第一章", URL: "first"}, {Title: "第二章", URL: "second"}}
+	path := func(title string) (string, error) { return filepath.Join(dir, title+".txt"), nil }
+	ctx := context.Background()
+	check := func(status string, want bool) {
+		t.Helper()
+		complete, err := bqg349BookComplete(ctx, status, chapters, catalog, path)
+		if err != nil || complete != want {
+			t.Fatalf("完结书跳过判断错误: status=%q complete=%t err=%v want=%t", status, complete, err, want)
+		}
+	}
+	var downloaded atomic.Int32
+	failed := errors.New("模拟正文下载失败")
+	failThird := false
+	fetch := func(_ context.Context, chapter bqg349_service.Chapter) (string, error) {
+		if failThird && chapter.URL == "third" {
+			return "", failed
+		}
+		downloaded.Add(1)
+		return chapter.Title + "完整正文", nil
+	}
+	saveChapters := func() {
+		t.Helper()
+		if err := saveBqg349Chapters(ctx, "完结测试书", chapters, catalog, path, fetch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check("已完结", false)
+	saveChapters()
+	check("已完结", true)
+	check("连载", false)
+	if downloaded.Load() != 2 {
+		t.Fatalf("首次采集下载次数错误: %d", downloaded.Load())
+	}
+	// 完成标记来自磁盘目录；新一轮重新读取后仍可跳过。
+	check("已完结", true)
+	second, _ := path("第二章")
+	if err := os.Remove(second); err != nil {
+		t.Fatal(err)
+	}
+	check("已完结", false)
+	saveChapters()
+	check("已完结", true)
+	if downloaded.Load() != 3 {
+		t.Fatalf("正文丢失时应只补缺失的一章: %d", downloaded.Load())
+	}
+	if err := os.WriteFile(second, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	check("已完结", false)
+	saveChapters()
+	check("已完结", true)
+	// 源站新增章节后恢复采集；目录数量一致但正文失败时不得跳过。
+	chapters = append(chapters, bqg349_service.Chapter{Title: "第三章", URL: "third"})
+	check("已完结", false)
+	failThird = true
+	if err := saveBqg349Chapters(ctx, "完结测试书", chapters, catalog, path, fetch); !errors.Is(err, failed) {
+		t.Fatalf("下载失败未传递: %v", err)
+	}
+	records, err := chapter_service.GetChaptersByFile(catalog)
+	if err != nil || len(records) != len(chapters) {
+		t.Fatalf("失败前应已保存完整目录: count=%d err=%v", len(records), err)
+	}
+	check("已完结", false)
+	failThird = false
+	saveChapters()
+	check("已完结", true)
+	if downloaded.Load() != 5 {
+		t.Fatalf("重试应只下载缺章，未复用完整正文: %d", downloaded.Load())
+	}
+	// 章节数相同但目录内容变化，也需要进入同步流程。
+	chapters[2].Title = "新第三章"
+	check("已完结", false)
+	chapters[2].Title, chapters[2].URL = "第三章", "changed"
+	check("已完结", false)
+	chapters[2].URL = "third"
+	chapters = chapters[:2]
+	check("已完结", false)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if complete, err := bqg349BookComplete(canceled, "已完结", chapters, catalog, path); complete || !errors.Is(err, context.Canceled) {
+		t.Fatalf("完结检查未响应停止信号: complete=%t err=%v", complete, err)
+	}
+}
+
 func TestBqg349SaveResumeAndOrder(t *testing.T) {
 	dir := t.TempDir()
 	catalog := filepath.Join(dir, "chapters.json")
