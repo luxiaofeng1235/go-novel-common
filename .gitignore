@@ -15,19 +15,40 @@ Thumbs.db
 /bin/
 /build/
 /dist/
-/api
+
+# 根目录单文件入口的 Linux 默认产物（自定义名称建议输出到 bin/）
 /admin
-/source
-/bqgapi
+/api
 /biquge34
+/bqg
+/bqg24
+/bqgapi
+/bu
+/chapter
+/collect
+/collect1
 /comic
+/dblocal
+/demo
+/email
+/ipdb
+/kuaikan
+/lyd
+/paoshuba
+/process
+/randtest
+/redis
+/replace_chapter
+/scp
+/siluke520
+/sms
+/source
+/source_a
 /table
 /test
-/email
-/bqg24
-/lyd
+/testarr
+/xsw
 /zssq
-/siluke520
 
 # 生成的模型文件
 /model.go
