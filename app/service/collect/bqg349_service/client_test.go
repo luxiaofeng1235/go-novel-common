@@ -291,3 +291,34 @@ func TestCancelWhileWaiting(t *testing.T) {
 		}
 	})
 }
+
+func TestRateLimitCooldownIsShared(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client, err := NewClient(DefaultSite, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Text(context.Background(), DefaultSite+"/#/book/2530/1.html"); err == nil {
+		t.Fatal("限流响应未报错")
+	}
+	client.mu.Lock()
+	remaining := time.Until(client.next)
+	client.mu.Unlock()
+	if remaining < 119*time.Second {
+		t.Fatalf("未共享服务端冷却时间: %s", remaining)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := client.Text(ctx, DefaultSite+"/#/book/2530/2.html"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("冷却期间无法取消等待: %v", err)
+	}
+	if attempts.Load() != 1 {
+		t.Fatalf("冷却期间其他请求仍访问服务端: %d", attempts.Load())
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -33,6 +34,8 @@ import (
 	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
 )
+
+const bqg349ChapterWorkers = 20
 
 func main() {
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
@@ -151,13 +154,16 @@ func syncBqg349Book(ctx context.Context, client *bqg349_service.Client, book *bq
 		return path, err
 	}
 	defer func() {
-		// 采集失败或手动停止时，也把已经保存的章节进度同步回 mc_book。
+		// 失败或手动停止时，也把已保存的目录和正文统计同步回 mc_book。
 		progressCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		err = errors.Join(err, saveBqg349BookProgress(progressCtx, global.DB, local, chapterFile))
+		if err == nil {
+			log.Printf("整本同步完成 local-id=%d book=%q chapters=%d", local.Id, local.BookName, len(chapters))
+		}
 	}()
-	log.Printf("开始采集 local-id=%d source-id=%d book=%q chapters=%d", local.Id, book.ID, local.BookName, len(chapters))
-	return saveBqg349Chapters(ctx, chapters, chapterFile, chapterPath, client.ChapterText, false)
+	log.Printf("开始处理书籍 local-id=%d source-id=%d book=%q chapters=%d workers=%d", local.Id, book.ID, local.BookName, len(chapters), bqg349ChapterWorkers)
+	return saveBqg349Chapters(ctx, local.BookName, chapters, chapterFile, chapterPath, client.ChapterText, false)
 }
 
 // saveBqg349Book 按书名和作者查重；空库直接新增，后续更新同一条书籍记录。
@@ -176,7 +182,7 @@ func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service
 	}
 	now := time.Now().Unix()
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		local = models.McBook{BookName: book.Title, Author: book.Author, BookType: 1, Addtime: now}
+		local = models.McBook{BookName: book.Title, Author: book.Author, BookType: 1, ClassName: book.Category, Status: 1, Addtime: now, Uptime: now}
 		if strings.Contains(book.Category, "女生") {
 			local.BookType = 2
 		}
@@ -198,6 +204,34 @@ func saveBqg349Book(ctx context.Context, database *gorm.DB, book *bqg349_service
 		"serialize": serialize, "last_chapter_title": book.LastChapter,
 		"last_chapter_time": utils.DateToUnix(book.LastUpdate), "uptime": now,
 	}
+	// 沿用原采集器的随机热度范围，只补空值/零值，后续轮询不覆盖已有统计。
+	hits, day, week, month, shits, score, readCount, searchCount := utils.GetRandNumBookHits()
+	for _, counter := range []struct {
+		column string
+		old    int64
+		value  int64
+	}{
+		{"hits", local.Hits, hits}, {"hits_day", local.HitsDay, day},
+		{"hits_week", local.HitsWeek, week}, {"hits_month", local.HitsMonth, month},
+		{"shits", local.Shits, shits}, {"read_count", local.ReadCount, readCount},
+		{"search_count", local.SearchCount, searchCount},
+	} {
+		if counter.old <= 0 {
+			data[counter.column] = counter.value
+		}
+	}
+	if local.SearchNum <= 0 {
+		if local.SearchCount > 0 {
+			searchCount = local.SearchCount
+		}
+		data["search_num"] = searchCount + int64(utils.RangeNum(0, 3000))
+	}
+	if local.Score <= 0 {
+		data["score"] = score
+	}
+	if local.ClassName == "" {
+		data["class_name"] = book.Category
+	}
 	if local.Pic == "" {
 		data["pic"] = book.CoverURL
 	}
@@ -218,18 +252,25 @@ func saveBqg349BookProgress(ctx context.Context, database *gorm.DB, book *models
 		if chapter == nil {
 			return fmt.Errorf("本地目录存在空章节，停止更新书籍进度")
 		}
+		if chapter.IsLess != 0 || chapter.TextNum <= 0 {
+			continue
+		}
 		total += chapter.TextNum
 		if last == nil || chapter.Sort > last.Sort {
 			last = chapter
 		}
 	}
-	if last == nil {
+	if len(chapters) == 0 {
 		return nil
 	}
 	data := map[string]any{
 		"chapter_num": len(chapters), "text_num": total,
-		"update_chapter_id": last.Id, "update_chapter_title": last.ChapterName,
-		"update_chapter_time": time.Now().Unix(), "uptime": time.Now().Unix(),
+		"uptime": time.Now().Unix(),
+	}
+	if last != nil {
+		data["update_chapter_id"] = last.Id
+		data["update_chapter_title"] = last.ChapterName
+		data["update_chapter_time"] = time.Now().Unix()
 	}
 	if book.ChapterNum == 0 {
 		data["status"] = 1
@@ -237,7 +278,11 @@ func saveBqg349BookProgress(ctx context.Context, database *gorm.DB, book *models
 	return database.WithContext(ctx).Model(&models.McBook{}).Where("id = ?", book.Id).Updates(data).Error
 }
 
-func saveBqg349Chapters(ctx context.Context, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) (err error) {
+// saveBqg349Chapters 先保存完整目录，再按目录 URL 并发获取正文。
+func saveBqg349Chapters(ctx context.Context, bookName string, chapters []bqg349_service.Chapter, chapterFile string, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// TXT 以章节标题的 MD5 命名，重复标题会覆盖正文，必须在写入前拒绝。
 	names := make(map[string]bool, len(chapters))
 	for _, chapter := range chapters {
@@ -274,18 +319,34 @@ func saveBqg349Chapters(ctx context.Context, chapters []bqg349_service.Chapter, 
 	if err != nil {
 		return err
 	}
-	// 一次读取目录、用 map 查重，每 25 章保存；退出时也保存已完成章节。
-	var pending, downloaded, reused int
+	// 全量目录先落盘，尚未取得正文的新章节用 is_less=1 标记。
+	var pending, added, downloaded, reused int
+	for _, chapter := range chapters {
+		record := index[chapter.Title]
+		if record == nil {
+			lastID++
+			record = &models.McBookChapter{Id: lastID, ChapterName: chapter.Title, IsLess: 1, Addtime: time.Now().Unix()}
+			index[chapter.Title] = record
+			added++
+			pending++
+		}
+		if record.ChapterLink != chapter.URL {
+			record.ChapterLink = chapter.URL
+			pending++
+		}
+	}
+	ordered := make([]*models.McBookChapter, 0, len(index))
+	for _, title := range order {
+		record := index[title]
+		if record.Sort != len(ordered)+1 {
+			record.Sort = len(ordered) + 1
+			pending++
+		}
+		ordered = append(ordered, record)
+	}
 	flush := func() error {
 		if pending == 0 {
 			return nil
-		}
-		ordered := make([]*models.McBookChapter, 0, len(index))
-		for _, title := range order {
-			if record := index[title]; record != nil {
-				record.Sort = len(ordered) + 1
-				ordered = append(ordered, record)
-			}
 		}
 		data, err := json.MarshalIndent(ordered, "", "  ")
 		if err != nil {
@@ -297,63 +358,120 @@ func saveBqg349Chapters(ctx context.Context, chapters []bqg349_service.Chapter, 
 		pending = 0
 		return nil
 	}
-	defer func() { err = errors.Join(err, flush()) }()
-	for _, chapter := range chapters {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		txtFile, err := chapterPath(chapter.Title)
-		if err != nil {
-			return err
-		}
-		record := index[chapter.Title]
-		text, readErr := os.ReadFile(txtFile)
-		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-			return fmt.Errorf("读取正文 %s 失败: %w", txtFile, readErr)
-		}
-		textNum := utf8.RuneCount(text)
-		incomplete := record != nil && (record.IsLess != 0 || record.TextNum > textNum)
-		if overwrite || incomplete || !utf8.Valid(text) || strings.TrimSpace(string(text)) == "" {
-			body, err := fetch(ctx, chapter)
-			if err != nil {
-				// 停止本书，避免失败后继续追加造成目录顺序错乱；下次从文件续采。
-				return fmt.Errorf("获取 %q 失败: %w", chapter.Title, err)
-			}
-			if strings.TrimSpace(body) == "" || !utf8.ValidString(body) {
-				return fmt.Errorf("%q 返回空正文或无效 UTF-8", chapter.Title)
-			}
-			text = []byte(body)
-			if err := bqg349WriteFile(txtFile, text); err != nil {
-				return fmt.Errorf("保存 %q 失败: %w", chapter.Title, err)
-			}
-			downloaded++
-		} else {
-			reused++
-		}
-		textNum = utf8.RuneCount(text)
-		if record == nil {
-			lastID++
-			record = &models.McBookChapter{Id: lastID, ChapterName: chapter.Title, Addtime: time.Now().Unix()}
-			index[chapter.Title] = record
-		} else if record.ChapterLink == chapter.URL && record.TextNum == textNum && record.IsLess == 0 {
-			continue
-		}
-		record.ChapterLink = chapter.URL
-		record.TextNum = textNum
-		record.IsLess = 0
-		pending++
-		if pending >= 25 {
-			if err := flush(); err != nil {
-				return err
-			}
-			log.Printf("已保存 file=%s downloaded=%d reused=%d", chapterFile, downloaded, reused)
-		}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := flush(); err != nil {
 		return err
 	}
-	log.Printf("补采完成 file=%s downloaded=%d reused=%d", chapterFile, downloaded, reused)
+	log.Printf("目录保存完成 book=%q total=%d added=%d file=%s", bookName, len(ordered), added, chapterFile)
+	defer func() { err = errors.Join(err, flush()) }()
+	for start := 0; start < len(chapters); start += 25 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		end := start + 25
+		if end > len(chapters) {
+			end = len(chapters)
+		}
+		batch := chapters[start:end]
+		previousDownloaded := downloaded
+		results := downloadBqg349Batch(ctx, batch, index, chapterPath, fetch, overwrite)
+		var batchErr error
+		for i, chapter := range batch {
+			result := results[i]
+			if result.err != nil {
+				batchErr = errors.Join(batchErr, result.err)
+				continue
+			}
+			if result.downloaded {
+				downloaded++
+			} else {
+				reused++
+			}
+			record := index[chapter.Title]
+			if record.TextNum != result.textNum || record.IsLess != 0 {
+				record.TextNum = result.textNum
+				record.IsLess = 0
+				pending++
+			}
+		}
+		if err := flush(); err != nil {
+			return errors.Join(batchErr, err)
+		}
+		if downloaded > previousDownloaded || batchErr != nil {
+			log.Printf("正文下载进度 book=%q processed=%d/%d downloaded=%d reused=%d", bookName, end, len(chapters), downloaded, reused)
+		}
+		if batchErr != nil {
+			return batchErr
+		}
+	}
+	log.Printf("正文采集完成 book=%q total=%d downloaded=%d reused=%d", bookName, len(chapters), downloaded, reused)
 	return nil
+}
+
+type bqg349DownloadResult struct {
+	textNum    int
+	downloaded bool
+	err        error
+}
+
+// downloadBqg349Batch 最多使用 20 个协程；批内目录只读，JSON 由主协程保存。
+func downloadBqg349Batch(ctx context.Context, chapters []bqg349_service.Chapter, index map[string]*models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) []bqg349DownloadResult {
+	results := make([]bqg349DownloadResult, len(chapters))
+	jobs := make(chan int)
+	workers := bqg349ChapterWorkers
+	if len(chapters) < workers {
+		workers = len(chapters)
+	}
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				chapter := chapters[i]
+				results[i] = downloadBqg349Chapter(ctx, chapter, index[chapter.Title], chapterPath, fetch, overwrite)
+			}
+		}()
+	}
+	for i := range chapters {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	return results
+}
+
+func downloadBqg349Chapter(ctx context.Context, chapter bqg349_service.Chapter, record *models.McBookChapter, chapterPath func(string) (string, error), fetch func(context.Context, bqg349_service.Chapter) (string, error), overwrite bool) bqg349DownloadResult {
+	if err := ctx.Err(); err != nil {
+		return bqg349DownloadResult{err: err}
+	}
+	txtFile, err := chapterPath(chapter.Title)
+	if err != nil {
+		return bqg349DownloadResult{err: err}
+	}
+	text, err := os.ReadFile(txtFile)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return bqg349DownloadResult{err: fmt.Errorf("读取正文 %s 失败: %w", txtFile, err)}
+	}
+	textNum := utf8.RuneCount(text)
+	// 新目录里的待下载标记不应触发重复下载已完整落盘、尚未更新 JSON 的 TXT。
+	incomplete := record != nil && (record.TextNum > textNum || (record.IsLess != 0 && record.TextNum > 0))
+	if !overwrite && !incomplete && utf8.Valid(text) && strings.TrimSpace(string(text)) != "" {
+		return bqg349DownloadResult{textNum: textNum}
+	}
+	body, err := fetch(ctx, chapter)
+	if err != nil {
+		return bqg349DownloadResult{err: fmt.Errorf("获取 %q 失败: %w", chapter.Title, err)}
+	}
+	if strings.TrimSpace(body) == "" || !utf8.ValidString(body) {
+		return bqg349DownloadResult{err: fmt.Errorf("%q 返回空正文或无效 UTF-8", chapter.Title)}
+	}
+	if err := bqg349WriteFile(txtFile, []byte(body)); err != nil {
+		return bqg349DownloadResult{err: fmt.Errorf("保存 %q 失败: %w", chapter.Title, err)}
+	}
+	return bqg349DownloadResult{textNum: utf8.RuneCountInString(body), downloaded: true}
 }
 
 // bqg349ChapterOrder 将缺章插入新站的对应位置，保留旧章节 ID 和旧站独有章节。

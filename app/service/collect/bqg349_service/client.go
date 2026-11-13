@@ -97,7 +97,10 @@ func NewClient(site, api string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{site: site, api: api, http: &http.Client{Timeout: 30 * time.Second}, interval: 250 * time.Millisecond}, nil
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = 20
+	transport.MaxConnsPerHost = 20
+	return &Client{site: site, api: api, http: &http.Client{Timeout: 30 * time.Second, Transport: transport}, interval: 50 * time.Millisecond}, nil
 }
 
 // CachePrefix 隔离不同站点/接口的进度，避免读取旧书源缓存。
@@ -441,6 +444,19 @@ func (c *Client) getOnce(ctx context.Context, endpoint string, query url.Values,
 			} else if until, err := http.ParseTime(value); err == nil {
 				statusErr.retryAfter = time.Until(until)
 			}
+		}
+		// 并发请求共享服务端冷却时间，避免其他协程在限流期间继续发请求。
+		if statusErr.status == http.StatusTooManyRequests || statusErr.retryAfter > 0 {
+			delay := statusErr.retryAfter
+			if delay < 500*time.Millisecond {
+				delay = 500 * time.Millisecond
+			}
+			until := time.Now().Add(delay)
+			c.mu.Lock()
+			if until.After(c.next) {
+				c.next = until
+			}
+			c.mu.Unlock()
 		}
 		// 超过等待预算时交给下次运行重试，避免提前重发请求。
 		if statusErr.retryAfter > 30*time.Second {

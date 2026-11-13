@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,13 +114,20 @@ func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 	if err != nil || local == nil || local.Id <= 0 {
 		t.Fatalf("空库未新增书籍: local=%v err=%v", local, err)
 	}
+	var initial models.McBook
+	if err := tx.Where("id = ?", local.Id).Take(&initial).Error; err != nil {
+		t.Fatal(err)
+	}
+	if initial.ReadCount < 1 || initial.ReadCount >= 10000 || initial.SearchCount < 1 || initial.SearchCount >= 1000 || initial.SearchNum < initial.SearchCount || initial.SearchNum >= initial.SearchCount+3000 || initial.Hits < 5000 || initial.Hits >= 9999 || initial.Score < 6 || initial.Score >= 9 || initial.ClassName != remote.Category || initial.Status != 1 || initial.Addtime <= 0 || initial.Uptime < initial.Addtime {
+		t.Fatalf("新书随机热度、分类或时间有误: %+v", initial)
+	}
 	remote.Status = "已完成"
 	updated, err := saveBqg349Book(ctx, tx, remote)
 	if err != nil || updated.Id != local.Id {
 		t.Fatalf("重复采集未更新原记录: local=%v err=%v", updated, err)
 	}
 	catalog := filepath.Join(t.TempDir(), "chapters.json")
-	data, _ := json.Marshal([]*models.McBookChapter{{Id: 1, Sort: 1, ChapterName: "第一章", TextNum: 5}, {Id: 2, Sort: 2, ChapterName: "第二章", TextNum: 3}})
+	data, _ := json.Marshal([]*models.McBookChapter{{Id: 1, Sort: 1, ChapterName: "第一章", TextNum: 5}, {Id: 2, Sort: 2, ChapterName: "第二章", TextNum: 3}, {Id: 3, Sort: 3, ChapterName: "第三章", IsLess: 1}})
 	if err := os.WriteFile(catalog, data, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -134,8 +142,28 @@ func TestBqg349MySQLBookAndChapterSync(t *testing.T) {
 	if err := tx.Model(&models.McBook{}).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 || saved.Serialize != 2 || saved.Status != 1 || saved.ChapterNum != 2 || saved.TextNum != 8 || saved.UpdateChapterId != 2 || saved.UpdateChapterTitle != "第二章" || saved.SourceUrl != remote.URL || saved.Desc != "简介" {
+	if count != 1 || saved.Serialize != 2 || saved.Status != 1 || saved.ChapterNum != 3 || saved.TextNum != 8 || saved.UpdateChapterId != 2 || saved.UpdateChapterTitle != "第二章" || saved.SourceUrl != remote.URL || saved.Desc != "简介" {
 		t.Fatalf("书籍或章节进度同步有误: count=%d saved=%+v", count, saved)
+	}
+	stats := func(book models.McBook) []any {
+		return []any{book.Hits, book.HitsDay, book.HitsWeek, book.HitsMonth, book.Shits, book.Score, book.ReadCount, book.SearchCount, book.SearchNum, book.ClassName, book.Addtime}
+	}
+	if !reflect.DeepEqual(stats(initial), stats(saved)) {
+		t.Fatalf("重复采集覆盖了已有热度或入库时间: before=%v after=%v", stats(initial), stats(saved))
+	}
+	// 已采集的零值补齐，有效统计和手动隐藏状态不覆盖。
+	if err := tx.Model(&models.McBook{}).Where("id = ?", local.Id).Updates(map[string]any{"read_count": 0, "search_count": 0, "search_num": 0, "status": 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saveBqg349Book(ctx, tx, remote); err != nil {
+		t.Fatal(err)
+	}
+	var filled models.McBook
+	if err := tx.Where("id = ?", local.Id).Take(&filled).Error; err != nil {
+		t.Fatal(err)
+	}
+	if filled.ReadCount <= 0 || filled.SearchCount <= 0 || filled.SearchNum < filled.SearchCount || filled.Hits != saved.Hits || filled.Status != 0 {
+		t.Fatalf("补零值时覆盖了已有统计或隐藏状态: %+v", filled)
 	}
 }
 
@@ -220,7 +248,7 @@ func TestBqg349SaveResumeAndOrder(t *testing.T) {
 		fetched = append(fetched, chapter.Title)
 		return body, nil
 	}
-	if err := saveBqg349Chapters(context.Background(), chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := chapter_service.GetChaptersByFile(catalog)
@@ -238,7 +266,7 @@ func TestBqg349SaveResumeAndOrder(t *testing.T) {
 	if err != nil || string(content) != body || !reflect.DeepEqual(fetched, []string{"第二章"}) {
 		t.Fatalf("正文或下载列表有误: %q, %v, %v", content, fetched, err)
 	}
-	if err := saveBqg349Chapters(context.Background(), chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(fetched) != 1 {
@@ -259,30 +287,170 @@ func TestBqg349SaveCheckpointOnFailure(t *testing.T) {
 		if chapter.Title == "公告" {
 			return "", failed
 		}
-		if chapter.Title == "第三章" {
-			t.Error("失败后不应继续下载后面的章节")
-		}
 		return "第一章正文", nil
 	}
-	if err := saveBqg349Chapters(context.Background(), chapters, catalog, path, fetch, false); !errors.Is(err, failed) {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); !errors.Is(err, failed) {
 		t.Fatalf("未传递错误: %v", err)
 	}
 	saved, err := chapter_service.GetChaptersByFile(catalog)
-	if err != nil || len(saved) != 1 || saved[0].ChapterName != "第一章" {
-		t.Fatalf("失败前完成的章节未保存: %v, %v", saved, err)
+	if err != nil || len(saved) != 3 || saved[0].ChapterName != "第一章" || saved[0].IsLess != 0 || saved[1].IsLess != 1 || saved[2].IsLess != 0 {
+		t.Fatalf("完整目录或正文完成状态未保存: %v, %v", saved, err)
+	}
+	third, _ := path("第三章")
+	if _, err := os.Stat(third); err != nil {
+		t.Fatalf("并发预下载的正文未保留供续采复用: %v", err)
 	}
 	fetch = func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
-		if chapter.Title == "第一章" {
-			t.Error("续采不应重复下载第一章")
+		if chapter.Title != "公告" {
+			t.Errorf("续采不应重复下载已保存正文: %s", chapter.Title)
 		}
 		return "短公告", nil
 	}
-	if err := saveBqg349Chapters(context.Background(), chapters, catalog, path, fetch, false); err != nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, false); err != nil {
 		t.Fatal(err)
 	}
 	saved, err = chapter_service.GetChaptersByFile(catalog)
 	if err != nil || len(saved) != 3 || saved[1].TextNum != 3 {
 		t.Fatalf("续采或短篇保留失败: %v, %v", saved, err)
+	}
+}
+
+func TestBqg349ConcurrentDownloadOrderAndResume(t *testing.T) {
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "chapters.json")
+	if err := os.WriteFile(catalog, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := func(title string) (string, error) { return filepath.Join(dir, title+".txt"), nil }
+	var chapters []bqg349_service.Chapter
+	for i := 1; i <= 58; i++ {
+		chapters = append(chapters, bqg349_service.Chapter{Title: fmt.Sprintf("第%d章", i), URL: fmt.Sprintf("chapter-%d", i)})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	started := make(chan struct{}, len(chapters))
+	release := make(chan struct{})
+	second := make(chan struct{})
+	var active, peak atomic.Int32
+	fetch := func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+		catalogRecords, err := chapter_service.GetChaptersByFile(catalog)
+		if err != nil || len(catalogRecords) != len(chapters) {
+			return "", fmt.Errorf("正文下载之前未保存完整目录: count=%d err=%v", len(catalogRecords), err)
+		}
+		current := active.Add(1)
+		defer active.Add(-1)
+		for previous := peak.Load(); current > previous; previous = peak.Load() {
+			if peak.CompareAndSwap(previous, current) {
+				break
+			}
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		// 强制第二章先于第一章返回，验证完成顺序不会改变目录和 ID。
+		if chapter.Title == "第2章" {
+			close(second)
+		}
+		if chapter.Title == "第1章" {
+			select {
+			case <-second:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		return chapter.Title + "正文", nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch, false) }()
+	for i := 0; i < bqg349ChapterWorkers; i++ {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatalf("未启动 %d 个并发下载协程", bqg349ChapterWorkers)
+		}
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("并发下载未完成")
+	}
+	if peak.Load() != bqg349ChapterWorkers || active.Load() != 0 {
+		t.Fatalf("并发数未受限或协程未退出: peak=%d active=%d", peak.Load(), active.Load())
+	}
+	saved, err := chapter_service.GetChaptersByFile(catalog)
+	if err != nil || len(saved) != len(chapters) {
+		t.Fatalf("目录未完整保存: count=%d err=%v", len(saved), err)
+	}
+	for i, record := range saved {
+		file, _ := path(chapters[i].Title)
+		body, err := os.ReadFile(file)
+		if record.Id != int64(i+1) || record.Sort != i+1 || record.ChapterName != chapters[i].Title || record.ChapterLink != chapters[i].URL || err != nil || string(body) != chapters[i].Title+"正文" {
+			t.Fatalf("并发下载造成章节错序或串文: index=%d record=%+v body=%q err=%v", i, record, body, err)
+		}
+	}
+	if err := saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, func(context.Context, bqg349_service.Chapter) (string, error) {
+		t.Error("完整正文不应重复下载")
+		return "", errors.New("重复下载")
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBqg349CancelConcurrentDownloads(t *testing.T) {
+	dir := t.TempDir()
+	catalog := filepath.Join(dir, "chapters.json")
+	if err := os.WriteFile(catalog, []byte("[]"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	path := func(title string) (string, error) { return filepath.Join(dir, title+".txt"), nil }
+	var chapters []bqg349_service.Chapter
+	for i := 1; i <= 25; i++ {
+		chapters = append(chapters, bqg349_service.Chapter{Title: fmt.Sprintf("第%d章", i), URL: fmt.Sprintf("chapter-%d", i)})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, len(chapters))
+	var active atomic.Int32
+	fetch := func(ctx context.Context, chapter bqg349_service.Chapter) (string, error) {
+		active.Add(1)
+		defer active.Add(-1)
+		started <- struct{}{}
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- saveBqg349Chapters(ctx, "测试书", chapters, catalog, path, fetch, false) }()
+	for i := 0; i < bqg349ChapterWorkers; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("下载协程未启动")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) || active.Load() != 0 {
+			t.Fatalf("停止后未取消全部协程: active=%d err=%v", active.Load(), err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("并发下载停止后未及时退出")
+	}
+	saved, err := chapter_service.GetChaptersByFile(catalog)
+	if err != nil || len(saved) != len(chapters) {
+		t.Fatalf("停止后丢失了完整目录: saved=%v err=%v", saved, err)
+	}
+	for _, chapter := range saved {
+		if chapter.IsLess != 1 || chapter.TextNum != 0 {
+			t.Fatalf("取消时将未下载正文错误标记为完成: %+v", chapter)
+		}
 	}
 }
 
@@ -330,7 +498,7 @@ func TestBqg349FailedOverwritePreservesText(t *testing.T) {
 	chapters := []bqg349_service.Chapter{{Title: "第一章", URL: "first"}}
 	path := func(string) (string, error) { return textFile, nil }
 	fetch := func(context.Context, bqg349_service.Chapter) (string, error) { return "", errors.New("下载失败") }
-	if err := saveBqg349Chapters(context.Background(), chapters, catalog, path, fetch, true); err == nil {
+	if err := saveBqg349Chapters(context.Background(), "测试书", chapters, catalog, path, fetch, true); err == nil {
 		t.Fatal("覆盖失败未返回错误")
 	}
 	content, err := os.ReadFile(textFile)
